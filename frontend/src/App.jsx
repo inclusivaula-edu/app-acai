@@ -100,6 +100,8 @@ export default function App() {
   const [dashboard, setDashboard]     = useState(null);
   const [deliverers, setDeliverers]   = useState([]);
   const [commissions, setCommissions] = useState(null);
+  const [plans, setPlans]             = useState([]);
+  const [planStatus, setPlanStatus]   = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('base');
   const [loading, setLoading]         = useState(false);
   const [alert, setAlert]             = useState({ msg: '', type: '' });
@@ -128,10 +130,18 @@ export default function App() {
   // Carregar produtos e restaurar sessão via cookie httpOnly
   useEffect(() => {
     fetchProducts();
+    apiFetch('/plans').then(setPlans).catch(() => {});
     apiFetch('/auth/me')
       .then(data => setUser(data.user))
       .catch(() => {})
       .finally(() => setSessionLoaded(true));
+
+    // Tratar retorno do Stripe Checkout
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('plan_success')) {
+      window.history.replaceState({}, '', '/');
+      setScreen('admin');
+    }
   }, []);
 
   useEffect(() => {
@@ -139,6 +149,7 @@ export default function App() {
     fetchOrders();
     fetchDashboard();
     fetchDeliverers();
+    apiFetch('/plans/status').then(setPlanStatus).catch(() => {});
   }, [user]);
 
   useEffect(() => {
@@ -180,6 +191,21 @@ export default function App() {
       const data = await apiFetch('/admin/products');
       setProducts(data.map(p => ({ ...p, id: p.id, icon: p.emoji || '🫐' })));
     } catch (err) { showAlert('Erro ao carregar produtos: ' + err.message); }
+  };
+
+  const subscribePlan = async (plan_id) => {
+    setLoading(true);
+    try {
+      const data = await apiFetch('/plans/subscribe', { method: 'POST', body: JSON.stringify({ plan_id }) });
+      window.location.href = data.url;
+    } catch (err) { showAlert(err.message || 'Erro ao iniciar assinatura'); setLoading(false); }
+  };
+
+  const openPortal = async () => {
+    try {
+      const data = await apiFetch('/plans/portal', { method: 'POST' });
+      window.location.href = data.url;
+    } catch (err) { showAlert(err.message || 'Erro ao abrir portal'); }
   };
 
   const fetchCommissions = async () => {
@@ -251,6 +277,7 @@ export default function App() {
               {user?.role === 'vendor' && (
                 <button onClick={() => setScreen('admin')} style={{ background: '#f0e7ff', border: 'none', color: '#667eea', cursor: 'pointer', padding: '7px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>📊 Admin</button>
               )}
+              <button onClick={() => setScreen('plans')} style={{ background: 'none', border: '1px solid #ddd', color: '#667eea', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>Ver Planos</button>
               {user ? (
                 <button onClick={logout} style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px' }}><LogOut size={14} /> Sair</button>
               ) : (
@@ -474,6 +501,94 @@ export default function App() {
     );
   }
 
+  // ─── PLANOS ───────────────────────────────────────────────────────────────────
+  if (screen === 'plans') {
+    const PLAN_INFO = {
+      monthly:    { label: 'Mensal',    badge: null,              color: '#667eea' },
+      semiannual: { label: 'Semestral', badge: 'Mais popular',    color: '#f39c12' },
+      annual:     { label: 'Anual',     badge: 'Melhor custo',    color: '#2ecc71' },
+    };
+    const canceled = new URLSearchParams(window.location.search).get('plan_canceled');
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', padding: '40px 20px' }}>
+        <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+          <button onClick={() => { window.history.replaceState({}, '', '/'); setScreen(user ? 'admin' : 'menu'); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px 16px', borderRadius: '8px', marginBottom: '32px', fontSize: '14px', fontWeight: 'bold' }}>← Voltar</button>
+
+          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '12px' }}>🫐</div>
+            <h1 style={{ margin: 0, color: '#fff', fontSize: '32px' }}>Escolha seu plano</h1>
+            <p style={{ color: 'rgba(255,255,255,0.85)', marginTop: '8px', fontSize: '16px' }}>Gerencie seu negócio de açaí com facilidade</p>
+          </div>
+
+          {canceled && (
+            <div style={{ background: '#ffebee', color: '#c62828', padding: '12px 16px', borderRadius: '8px', marginBottom: '24px', textAlign: 'center', fontWeight: '500' }}>
+              Assinatura cancelada. Você pode tentar novamente quando quiser.
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
+            {plans.map(plan => {
+              const info = PLAN_INFO[plan.id] || {};
+              const isActive = planStatus?.plan === plan.id && planStatus?.plan_status === 'active';
+              return (
+                <div key={plan.id} style={{ background: '#fff', borderRadius: '16px', padding: '32px 28px', textAlign: 'center', position: 'relative', boxShadow: info.badge ? '0 8px 32px rgba(0,0,0,0.2)' : '0 4px 16px rgba(0,0,0,0.12)', transform: info.badge ? 'scale(1.04)' : 'none' }}>
+                  {info.badge && (
+                    <div style={{ position: 'absolute', top: '-12px', left: '50%', transform: 'translateX(-50%)', background: info.color, color: '#fff', padding: '4px 16px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                      {info.badge}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '14px', fontWeight: 'bold', color: info.color, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>{plan.name}</div>
+                  <div style={{ fontSize: '42px', fontWeight: 'bold', color: '#333', lineHeight: 1 }}>
+                    R$ {plan.price_monthly.toFixed(2).replace('.', ',')}
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#999', marginBottom: '16px' }}>por mês</div>
+
+                  {plan.months > 1 && (
+                    <div style={{ background: '#f0f9f0', border: '1px solid #a5d6a7', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '13px', color: '#2e7d32', fontWeight: 'bold' }}>
+                        Total: R$ {plan.total.toFixed(2).replace('.', ',')}
+                      </div>
+                      {plan.savings > 0 && (
+                        <div style={{ fontSize: '12px', color: '#43a047' }}>
+                          Economia de R$ {plan.savings.toFixed(2).replace('.', ',')} vs mensal
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '24px' }}>
+                    Cobrado a cada {plan.months === 1 ? 'mês' : `${plan.months} meses`}
+                  </div>
+
+                  {isActive ? (
+                    <div>
+                      <div style={{ background: '#e8f5e9', color: '#2e7d32', padding: '10px', borderRadius: '8px', fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>✓ Plano Ativo</div>
+                      <button onClick={openPortal} style={{ background: 'none', border: '1px solid #ddd', color: '#666', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                        Gerenciar assinatura
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => user ? subscribePlan(plan.id) : setScreen('login')}
+                      disabled={loading}
+                      style={{ width: '100%', background: `linear-gradient(135deg, ${info.color}, ${info.color}dd)`, color: '#fff', border: 'none', padding: '14px', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '16px', opacity: loading ? 0.7 : 1 }}
+                    >
+                      {user ? 'Assinar agora' : 'Entrar para assinar'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ textAlign: 'center', marginTop: '32px', color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>
+            Pagamento seguro via Stripe · Cancele quando quiser
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── HEADER ADMIN ─────────────────────────────────────────────────────────────
   const AdminHeader = ({ active }) => (
     <div style={{ background: '#fff', padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
@@ -487,6 +602,9 @@ export default function App() {
             }}>{label}</button>
           ))}
           <button onClick={() => setScreen('menu')} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px' }}>Ver Cardápio</button>
+          <button onClick={() => setScreen('plans')} style={{ background: planStatus?.plan_status === 'active' && planStatus?.plan !== 'trial' ? '#e8f5e9' : '#fff8e1', border: 'none', color: planStatus?.plan_status === 'active' && planStatus?.plan !== 'trial' ? '#2e7d32' : '#f57f17', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
+            {planStatus?.plan_status === 'active' && planStatus?.plan !== 'trial' ? '✓ Plano Ativo' : '⚠️ Planos'}
+          </button>
           <button onClick={logout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 'bold' }}>
             <LogOut size={14} /> Sair
           </button>

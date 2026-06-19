@@ -39,7 +39,12 @@ app.use(cors({
   allowedHeaders: ['Content-Type'],
 }));
 
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({
+  limit: '100kb',
+  verify: (req, res, buf) => {
+    if (req.originalUrl === '/api/webhooks/stripe') req.rawBody = buf;
+  },
+}));
 app.use(cookieParser());
 
 // ── Rate limiting simples ──────────────────────
@@ -67,6 +72,17 @@ const sbErr = (error, res) => {
   return res.status(500).json({ error: 'Erro interno' });
 };
 
+// ── Stripe ────────────────────────────────────
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? require('stripe')(process.env.STRIPE_SECRET_KEY)
+  : null;
+
+const PLANS = {
+  monthly:    { name: 'Mensal',    price: 290.00, months: 1,  priceId: process.env.STRIPE_PRICE_MONTHLY    },
+  semiannual: { name: 'Semestral', price: 250.00, months: 6,  priceId: process.env.STRIPE_PRICE_SEMIANNUAL },
+  annual:     { name: 'Anual',     price: 210.00, months: 12, priceId: process.env.STRIPE_PRICE_ANNUAL     },
+};
+
 // ── Opções de cookie httpOnly ──────────────────
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -91,6 +107,69 @@ const auth = (req, res, next) => {
 };
 
 // ============================================
+// WEBHOOK STRIPE (antes de qualquer middleware de body)
+// ============================================
+app.post('/api/webhooks/stripe', async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Stripe não configurado' });
+
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch {
+    return res.status(400).json({ error: 'Webhook inválido' });
+  }
+
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const { vendor_id, plan_id } = session.metadata || {};
+      if (vendor_id && PLANS[plan_id] && session.subscription) {
+        const sub = await stripe.subscriptions.retrieve(session.subscription);
+        const expiresAt = new Date(sub.current_period_end * 1000);
+        await supabase.from('vendors').update({
+          plan: plan_id,
+          plan_status: 'active',
+          plan_expires_at: expiresAt.toISOString(),
+          stripe_subscription_id: session.subscription,
+        }).eq('id', vendor_id);
+      }
+    }
+
+    if (event.type === 'invoice.paid') {
+      const invoice = event.data.object;
+      if (!invoice.subscription) { res.json({ received: true }); return; }
+      const sub = await stripe.subscriptions.retrieve(invoice.subscription);
+      const priceId = sub.items.data[0]?.price.id;
+      const plan_id = Object.keys(PLANS).find(k => PLANS[k].priceId === priceId);
+      if (!plan_id) { res.json({ received: true }); return; }
+      const expiresAt = new Date(sub.current_period_end * 1000);
+      const { data: vendor } = await supabase
+        .from('vendors').select('id').eq('stripe_subscription_id', invoice.subscription).maybeSingle();
+      if (vendor) {
+        await supabase.from('vendors').update({
+          plan: plan_id, plan_status: 'active', plan_expires_at: expiresAt.toISOString(),
+        }).eq('id', vendor.id);
+      }
+    }
+
+    if (event.type === 'customer.subscription.deleted') {
+      const sub = event.data.object;
+      const { data: vendor } = await supabase
+        .from('vendors').select('id').eq('stripe_subscription_id', sub.id).maybeSingle();
+      if (vendor) {
+        await supabase.from('vendors').update({ plan_status: 'canceled', stripe_subscription_id: null }).eq('id', vendor.id);
+      }
+    }
+  } catch (err) {
+    console.error('Webhook error:', err);
+    return res.status(500).json({ error: 'Erro ao processar webhook' });
+  }
+
+  res.json({ received: true });
+});
+
+// ============================================
 // HEALTH CHECK
 // ============================================
 app.get('/api/health', async (req, res) => {
@@ -100,6 +179,95 @@ app.get('/api/health', async (req, res) => {
     supabase: error ? 'erro' : 'conectado',
     timestamp: new Date().toISOString()
   });
+});
+
+// ============================================
+// PLANOS: LISTAR (público)
+// ============================================
+app.get('/api/plans', (req, res) => {
+  res.json(Object.entries(PLANS).map(([id, p]) => ({
+    id,
+    name: p.name,
+    price_monthly: p.price,
+    months: p.months,
+    total: +(p.price * p.months).toFixed(2),
+    savings: +((290 - p.price) * p.months).toFixed(2),
+  })));
+});
+
+// ============================================
+// PLANOS: INICIAR CHECKOUT (vendor)
+// ============================================
+app.post('/api/plans/subscribe', auth, async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Stripe não configurado' });
+
+  const { plan_id } = req.body;
+  const plan = PLANS[plan_id];
+  if (!plan) return res.status(400).json({ error: 'Plano inválido' });
+  if (!plan.priceId) return res.status(500).json({ error: 'Price ID do plano não configurado' });
+
+  try {
+    const { data: vendor } = await supabase
+      .from('vendors').select('email, name, stripe_customer_id').eq('id', req.user.id).single();
+
+    let customerId = vendor.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: vendor.email, name: vendor.name, metadata: { vendor_id: req.user.id },
+      });
+      customerId = customer.id;
+      await supabase.from('vendors').update({ stripe_customer_id: customerId }).eq('id', req.user.id);
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [{ price: plan.priceId, quantity: 1 }],
+      success_url: `${FRONTEND_URL}?plan_success=1`,
+      cancel_url:  `${FRONTEND_URL}/plans?plan_canceled=1`,
+      metadata: { vendor_id: req.user.id, plan_id },
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('Stripe checkout error:', err);
+    res.status(500).json({ error: 'Erro ao criar sessão de pagamento' });
+  }
+});
+
+// ============================================
+// PLANOS: STATUS DA ASSINATURA (vendor)
+// ============================================
+app.get('/api/plans/status', auth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('vendors').select('plan, plan_status, plan_expires_at').eq('id', req.user.id).single();
+    if (error) return sbErr(error, res);
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// PLANOS: PORTAL DO CLIENTE (gerenciar assinatura)
+// ============================================
+app.post('/api/plans/portal', auth, async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Stripe não configurado' });
+  try {
+    const { data: vendor } = await supabase
+      .from('vendors').select('stripe_customer_id').eq('id', req.user.id).single();
+    if (!vendor?.stripe_customer_id)
+      return res.status(400).json({ error: 'Sem assinatura ativa' });
+    const session = await stripe.billingPortal.sessions.create({
+      customer: vendor.stripe_customer_id,
+      return_url: FRONTEND_URL,
+    });
+    res.json({ url: session.url });
+  } catch {
+    res.status(500).json({ error: 'Erro ao abrir portal' });
+  }
 });
 
 // ============================================
