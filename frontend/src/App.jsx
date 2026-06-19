@@ -106,6 +106,7 @@ export default function App() {
   const [dashboard, setDashboard]     = useState(null);
   const [deliverers, setDeliverers]   = useState([]);
   const [commissions, setCommissions] = useState(null);
+  const [vendorSettings, setVendorSettings] = useState({ deliveries_enabled: true });
   const [plans, setPlans]             = useState([]);
   const [planStatus, setPlanStatus]   = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('base');
@@ -165,6 +166,7 @@ export default function App() {
     fetchDashboard();
     fetchDeliverers();
     apiFetch('/plans/status').then(setPlanStatus).catch(() => {});
+    fetchVendorSettings();
   }, [user]);
 
   useEffect(() => {
@@ -199,6 +201,13 @@ export default function App() {
       const data = await apiFetch('/deliverers');
       setDeliverers(Array.isArray(data) ? data : []);
     } catch (err) { handleFetchError(err); }
+  };
+
+  const fetchVendorSettings = async () => {
+    try {
+      const data = await apiFetch('/vendors/settings');
+      setVendorSettings(data);
+    } catch { /* silencioso */ }
   };
 
   const fetchAdminProducts = async () => {
@@ -328,7 +337,11 @@ export default function App() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px' }}>
               {products.filter(p => p.category === selectedCategory && p.available !== false).map(product => (
                 <div key={product.id} style={{ background: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-                  <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '28px', textAlign: 'center', fontSize: '52px' }}>{product.icon}</div>
+                  <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {product.image_url
+                      ? <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <span style={{ fontSize: '52px' }}>{product.icon}</span>}
+                  </div>
                   <div style={{ padding: '16px' }}>
                     <h3 style={{ margin: '0 0 4px 0', color: '#333', fontSize: '16px' }}>{product.name}</h3>
                     <p style={{ margin: '0 0 12px 0', color: '#999', fontSize: '13px', lineHeight: '1.4' }}>{product.description || product.desc}</p>
@@ -648,8 +661,9 @@ export default function App() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '32px' }}>
                 {[
                   { label: 'Total de Pedidos', value: dashboard.totalOrders, icon: '📦', color: '#667eea' },
-                  { label: 'Receita Total', value: `R$ ${dashboard.totalRevenue}`, icon: '💰', color: '#2ecc71' },
-                  { label: 'Ticket Médio', value: `R$ ${dashboard.averageTicket}`, icon: '📈', color: '#f39c12' },
+                  { label: 'Receita Confirmada', value: `R$ ${dashboard.totalRevenue}`, icon: '✅', color: '#2ecc71' },
+                  { label: 'Pendente (em aberto)', value: `R$ ${dashboard.pendingRevenue || '0.00'}`, icon: '⏳', color: '#f39c12' },
+                  { label: 'Ticket Médio', value: `R$ ${dashboard.averageTicket}`, icon: '📈', color: '#667eea' },
                   { label: 'Pedidos Hoje', value: dashboard.ordersToday, icon: '📅', color: '#e74c3c' },
                 ].map(card => (
                   <div key={card.label} style={{ background: '#fff', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', borderLeft: `4px solid ${card.color}` }}>
@@ -713,6 +727,15 @@ export default function App() {
   if (screen === 'orders-admin') {
     if (!sessionLoaded) return null;
     if (!user) { setScreen('login'); return null; }
+
+    const deleteOrder = async (orderId) => {
+      if (!window.confirm('Remover este pedido permanentemente?')) return;
+      try {
+        await apiFetch(`/orders/${orderId}`, { method: 'DELETE' });
+        showAlert('Pedido removido', 'success');
+        fetchOrders(); fetchDashboard();
+      } catch (err) { showAlert(err.message || 'Erro ao remover pedido'); }
+    };
 
     const confirmPayment = async (orderId, delivererId) => {
       try {
@@ -840,9 +863,12 @@ export default function App() {
                       <button onClick={() => updateStatus(order.id, 'cancelado')} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
                         ✕ Cancelar
                       </button>
+                      <button onClick={() => deleteOrder(order.id)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }} title="Excluir pedido">
+                        🗑️
+                      </button>
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                       {['confirmado','em_preparo','pronto','em_entrega','entregue'].map(s => (
                         <button key={s} onClick={() => updateStatus(order.id, s)} disabled={order.status === s} style={{
                           background: order.status === s ? STATUS_COLORS[s]?.color || '#667eea' : '#f5f5f5',
@@ -852,6 +878,11 @@ export default function App() {
                           fontWeight: 'bold', fontSize: '12px', opacity: order.status === s ? 1 : 0.75,
                         }}>{STATUS_LABELS[s]}</button>
                       ))}
+                      {['cancelado','entregue'].includes(order.status) && (
+                        <button onClick={() => deleteOrder(order.id)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '7px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }} title="Excluir pedido">
+                          🗑️
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -869,7 +900,22 @@ export default function App() {
     if (!user) { setScreen('login'); return null; }
 
     const openNew = () => { setProductForm({ name: '', description: '', price: '', category: 'base', emoji: '🫐', calories: '', ingredients: '', allergens: '' }); setEditingProduct(null); setShowProductForm(true); };
-    const openEdit = (p) => { setProductForm({ name: p.name, description: p.description || '', price: p.price, category: p.category, emoji: p.icon || p.emoji || '🫐', calories: p.calories || '', ingredients: p.ingredients || '', allergens: p.allergens || '' }); setEditingProduct(p); setShowProductForm(true); };
+    const openEdit = (p) => { setProductForm({ name: p.name, description: p.description || '', price: p.price, category: p.category, emoji: p.icon || p.emoji || '🫐', calories: p.calories || '', ingredients: p.ingredients || '', allergens: p.allergens || '' }); setEditingProduct({ ...p }); setShowProductForm(true); };
+
+    const uploadImage = async (productId, file) => {
+      const content_type = file.type;
+      const { signed_url, public_url } = await apiFetch(`/products/${productId}/image-url`, {
+        method: 'POST', body: JSON.stringify({ content_type }),
+      });
+      const uploadRes = await fetch(signed_url, {
+        method: 'PUT', headers: { 'Content-Type': content_type }, body: file,
+      });
+      if (!uploadRes.ok) throw new Error('Falha no upload da imagem');
+      await apiFetch(`/products/${productId}/image`, {
+        method: 'PATCH', body: JSON.stringify({ image_url: public_url }),
+      });
+      return public_url;
+    };
 
     const saveProduct = async (e) => {
       e.preventDefault(); setLoading(true);
@@ -931,6 +977,27 @@ export default function App() {
                   <Input label="Calorias" value={productForm.calories} onChange={e => setProductForm(f => ({...f, calories: e.target.value}))} placeholder="450 kcal" />
                   <Input label="Ingredientes" value={productForm.ingredients} onChange={e => setProductForm(f => ({...f, ingredients: e.target.value}))} placeholder="Açaí, granola, mel" />
                   <Input label="Alérgenos" value={productForm.allergens} onChange={e => setProductForm(f => ({...f, allergens: e.target.value}))} placeholder="Glúten, mel" />
+                </div>
+                <div style={{ marginBottom: '15px' }}>
+                  <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', color: '#444', fontSize: '14px' }}>Imagem do Produto</label>
+                  {editingProduct?.image_url && (
+                    <img src={editingProduct.image_url} alt="atual" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px', display: 'block' }} />
+                  )}
+                  {editingProduct ? (
+                    <input type="file" accept="image/*" onChange={async (e) => {
+                      const file = e.target.files[0]; if (!file) return;
+                      setLoading(true);
+                      try {
+                        const url = await uploadImage(editingProduct.id, file);
+                        setEditingProduct(prev => ({ ...prev, image_url: url }));
+                        showAlert('Imagem atualizada!', 'success');
+                        fetchAdminProducts();
+                      } catch (err) { showAlert('Erro no upload: ' + err.message); }
+                      finally { setLoading(false); e.target.value = ''; }
+                    }} style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+                  ) : (
+                    <div style={{ fontSize: '13px', color: '#999', padding: '10px', background: '#f9f9f9', borderRadius: '8px' }}>Salve o produto primeiro para adicionar imagem.</div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <Btn type="submit" disabled={loading}>{loading ? 'Salvando...' : 'Salvar'}</Btn>
@@ -1020,6 +1087,31 @@ export default function App() {
         <AdminHeader active="deliverers-admin" />
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: '28px 20px' }}>
           <Alert msg={alert.msg} type={alert.type} />
+
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 'bold', fontSize: '16px' }}>🚚 Entregas a domicílio</div>
+              <div style={{ fontSize: '13px', color: '#999', marginTop: '3px' }}>
+                {vendorSettings?.deliveries_enabled !== false
+                  ? 'Ativa — clientes podem escolher entrega'
+                  : 'Desativada — somente retirada no local'}
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                const next = vendorSettings?.deliveries_enabled === false;
+                try {
+                  const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ deliveries_enabled: next }) });
+                  setVendorSettings(data);
+                  showAlert(next ? 'Entregas ativadas!' : 'Entregas desativadas!', 'success');
+                } catch (err) { showAlert(err.message); }
+              }}
+              style={{ background: vendorSettings?.deliveries_enabled !== false ? '#e8f5e9' : '#ffebee', color: vendorSettings?.deliveries_enabled !== false ? '#2e7d32' : '#c62828', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}
+            >
+              {vendorSettings?.deliveries_enabled !== false ? '✓ Entregas Ativas' : '✗ Entregas Desativadas'}
+            </button>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h2 style={{ margin: 0 }}>🚴 Entregadores</h2>
             <Btn onClick={openNew}>+ Novo Entregador</Btn>
@@ -1098,14 +1190,21 @@ export default function App() {
             </div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '28px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '28px' }}>
                 {commissions.summary.map(d => (
                   <div key={d.id} style={{ background: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', borderLeft: '4px solid #667eea' }}>
                     <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '8px' }}>🚴 {d.name}</div>
-                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Taxa de comissão: {d.commission_rate}%</div>
-                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Entregas realizadas: <strong>{d.deliveries}</strong></div>
-                    <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#2ecc71', marginTop: '8px' }}>R$ {d.total_commission}</div>
-                    <div style={{ fontSize: '12px', color: '#999' }}>a pagar</div>
+                    <div style={{ fontSize: '13px', color: '#666', marginBottom: '4px' }}>Taxa: {d.commission_rate}% · Entregas: <strong>{d.deliveries}</strong></div>
+                    <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
+                      <div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#e74c3c' }}>R$ {d.pending_commission}</div>
+                        <div style={{ fontSize: '11px', color: '#999' }}>a pagar</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#2ecc71' }}>R$ {d.paid_commission}</div>
+                        <div style={{ fontSize: '11px', color: '#999' }}>pago</div>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1116,7 +1215,7 @@ export default function App() {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid #eee' }}>
-                        {['Pedido', 'Cliente', 'Total', 'Taxa Entrega', 'Entregador', 'Comissão'].map(h => (
+                        {['Pedido', 'Cliente', 'Total', 'Taxa Entrega', 'Entregador', 'Comissão', 'Status'].map(h => (
                           <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: '#666', fontWeight: '600', fontSize: '13px' }}>{h}</th>
                         ))}
                       </tr>
@@ -1125,13 +1224,26 @@ export default function App() {
                       {commissions.orders.map((o, i) => {
                         const del = commissions.summary.find(d => d.id === o.deliverer_id);
                         return (
-                          <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                          <tr key={i} style={{ borderBottom: '1px solid #f0f0f0', opacity: o.commission_paid ? 0.65 : 1 }}>
                             <td style={{ padding: '10px 12px', fontWeight: 'bold', fontSize: '14px' }}>{o.order_number}</td>
                             <td style={{ padding: '10px 12px', fontSize: '14px', color: '#666' }}>{o.customer_name}</td>
                             <td style={{ padding: '10px 12px', fontSize: '14px', fontWeight: 'bold', color: '#667eea' }}>R$ {Number(o.total).toFixed(2)}</td>
                             <td style={{ padding: '10px 12px', fontSize: '14px', color: '#666' }}>R$ {Number(o.delivery_fee).toFixed(2)}</td>
                             <td style={{ padding: '10px 12px', fontSize: '14px', color: '#333' }}>{del?.name || '—'}</td>
-                            <td style={{ padding: '10px 12px', fontSize: '14px', fontWeight: 'bold', color: '#2ecc71' }}>R$ {Number(o.deliverer_commission || 0).toFixed(2)}</td>
+                            <td style={{ padding: '10px 12px', fontSize: '14px', fontWeight: 'bold', color: o.commission_paid ? '#2ecc71' : '#e74c3c' }}>R$ {Number(o.deliverer_commission || 0).toFixed(2)}</td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await apiFetch(`/orders/${o.id}/commission-paid`, { method: 'PATCH', body: JSON.stringify({ paid: !o.commission_paid }) });
+                                    fetchCommissions();
+                                  } catch (err) { showAlert(err.message); }
+                                }}
+                                style={{ background: o.commission_paid ? '#e8f5e9' : '#fff8e1', color: o.commission_paid ? '#2e7d32' : '#f57f17', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                              >
+                                {o.commission_paid ? '✓ Pago' : 'Marcar Pago'}
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}

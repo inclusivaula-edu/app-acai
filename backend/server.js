@@ -598,12 +598,15 @@ app.post('/api/orders', async (req, res) => {
     // Pegar o primeiro vendor ativo (MVP single-vendor)
     const { data: vendor, error: vErr } = await supabase
       .from('vendors')
-      .select('id')
+      .select('id, deliveries_enabled')
       .eq('status', 'active')
       .limit(1)
       .single();
 
     if (vErr || !vendor) return res.status(500).json({ error: 'Nenhum vendor disponível' });
+
+    if (delivery_type === 'entrega' && vendor.deliveries_enabled === false)
+      return res.status(400).json({ error: 'Entregas não disponíveis no momento. Escolha retirada no local.' });
 
     const subtotal     = validatedItems.reduce((s, i) => s + (i.price * i.quantity), 0);
     const delivery_fee = delivery_type === 'entrega' ? 5.00 : 0;
@@ -792,6 +795,23 @@ app.patch('/api/orders/:id/deliverer', [auth, planCheck], async (req, res) => {
 });
 
 // ============================================
+// PEDIDOS: DELETAR (vendor)
+// ============================================
+app.delete('/api/orders/:id', [auth, planCheck], async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('vendor_id', req.user.id);
+    if (error) return sbErr(error, res);
+    res.json({ message: 'Pedido removido' });
+  } catch {
+    res.status(500).json({ error: 'Erro interno ao remover pedido' });
+  }
+});
+
+// ============================================
 // PAGAMENTOS: criar intenção (simulado)
 // ============================================
 app.post('/api/payments/create-intent', async (req, res) => {
@@ -840,6 +860,54 @@ app.post('/api/payments/confirm', [auth, planCheck], async (req, res) => {
 });
 
 // ============================================
+// COMISSÕES: MARCAR COMO PAGO
+// ============================================
+app.patch('/api/orders/:id/commission-paid', [auth, planCheck], async (req, res) => {
+  try {
+    const paid = req.body.paid !== false;
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ commission_paid: paid, commission_paid_at: paid ? new Date().toISOString() : null })
+      .eq('id', req.params.id)
+      .eq('vendor_id', req.user.id)
+      .not('deliverer_id', 'is', null)
+      .select().single();
+    if (error) return sbErr(error, res);
+    if (!data) return res.status(404).json({ error: 'Pedido não encontrado' });
+    res.json({ message: 'Comissão atualizada', order: data });
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// CONFIGURAÇÕES DO VENDOR (entregas)
+// ============================================
+app.get('/api/vendors/settings', auth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('vendors').select('deliveries_enabled').eq('id', req.user.id).single();
+    if (error) return sbErr(error, res);
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+app.patch('/api/vendors/settings', [auth, planCheck], async (req, res) => {
+  try {
+    const allowed = ['deliveries_enabled'];
+    const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+    const { data, error } = await supabase
+      .from('vendors').update(updates).eq('id', req.user.id).select('deliveries_enabled').single();
+    if (error) return sbErr(error, res);
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Erro interno ao salvar configurações' });
+  }
+});
+
+// ============================================
 // DASHBOARD ADMIN
 // ============================================
 app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
@@ -856,9 +924,11 @@ app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
 
     if (error) return sbErr(error, res);
 
-    const today      = new Date(); today.setHours(0,0,0,0);
-    const paidOrders = allOrders.filter(o => o.payment_status === 'pago');
+    const today         = new Date(); today.setHours(0,0,0,0);
+    const paidOrders    = allOrders.filter(o => o.payment_status === 'pago');
+    const pendingOrders = allOrders.filter(o => o.payment_status !== 'pago' && o.status !== 'cancelado');
     const totalRevenue  = paidOrders.reduce((s, o) => s + Number(o.total), 0);
+    const pendingRevenue = pendingOrders.reduce((s, o) => s + Number(o.total), 0);
     const averageTicket = paidOrders.length ? totalRevenue / paidOrders.length : 0;
     const ordersToday   = allOrders.filter(o => new Date(o.created_at) >= today).length;
 
@@ -868,6 +938,7 @@ app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
     res.json({
       totalOrders:    allOrders.length,
       totalRevenue:   totalRevenue.toFixed(2),
+      pendingRevenue: pendingRevenue.toFixed(2),
       averageTicket:  averageTicket.toFixed(2),
       ordersToday,
       ordersByStatus: byStatus,
@@ -878,6 +949,50 @@ app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
     });
   } catch {
     res.status(500).json({ error: 'Erro interno no dashboard' });
+  }
+});
+
+// ============================================
+// PRODUTOS: IMAGEM — gerar URL de upload assinada
+// ============================================
+app.post('/api/products/:id/image-url', [auth, planCheck], async (req, res) => {
+  try {
+    const { content_type = 'image/jpeg' } = req.body;
+    const { data: product } = await supabase
+      .from('products').select('id').eq('id', req.params.id).eq('vendor_id', req.user.id).single();
+    if (!product) return res.status(404).json({ error: 'Produto não encontrado' });
+
+    const ext  = content_type.split('/')[1]?.split('+')[0] || 'jpg';
+    const path = `${req.user.id}/${req.params.id}.${ext}`;
+
+    // Garante que o bucket existe
+    const { error: bErr } = await supabase.storage.getBucket('product-images');
+    if (bErr) await supabase.storage.createBucket('product-images', { public: true, fileSizeLimit: 5242880 });
+
+    const { data, error } = await supabase.storage.from('product-images').createSignedUploadUrl(path);
+    if (error) { console.error('Storage error:', error); return res.status(500).json({ error: 'Erro ao gerar URL de upload' }); }
+
+    const { data: { publicUrl } } = supabase.storage.from('product-images').getPublicUrl(path);
+    res.json({ signed_url: data.signedUrl, token: data.token, path, public_url: publicUrl });
+  } catch {
+    res.status(500).json({ error: 'Erro interno ao gerar URL' });
+  }
+});
+
+// ============================================
+// PRODUTOS: IMAGEM — salvar URL após upload
+// ============================================
+app.patch('/api/products/:id/image', [auth, planCheck], async (req, res) => {
+  try {
+    const { image_url } = req.body;
+    if (!image_url) return res.status(400).json({ error: 'image_url obrigatória' });
+    const { data, error } = await supabase
+      .from('products').update({ image_url }).eq('id', req.params.id).eq('vendor_id', req.user.id).select().single();
+    if (error) return sbErr(error, res);
+    if (!data) return res.status(404).json({ error: 'Produto não encontrado' });
+    res.json({ message: 'Imagem atualizada', product: data });
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
   }
 });
 
@@ -961,7 +1076,7 @@ app.get('/api/commissions', [auth, planCheck], async (req, res) => {
     const { start, end } = req.query;
     let query = supabase
       .from('orders')
-      .select('id, order_number, total, delivery_fee, deliverer_id, deliverer_commission, status, created_at, customer_name')
+      .select('id, order_number, total, delivery_fee, deliverer_id, deliverer_commission, commission_paid, commission_paid_at, status, created_at, customer_name')
       .eq('vendor_id', req.user.id)
       .not('deliverer_id', 'is', null)
       .eq('payment_status', 'pago');
@@ -978,9 +1093,20 @@ app.get('/api/commissions', [auth, planCheck], async (req, res) => {
       .eq('vendor_id', req.user.id);
 
     const summary = (deliverers || []).map(d => {
-      const deliveries       = orders.filter(o => o.deliverer_id === d.id);
-      const total_commission = deliveries.reduce((s, o) => s + Number(o.deliverer_commission || 0), 0);
-      return { ...d, deliveries: deliveries.length, total_commission: total_commission.toFixed(2), orders: deliveries };
+      const deliveries        = orders.filter(o => o.deliverer_id === d.id);
+      const paid              = deliveries.filter(o => o.commission_paid);
+      const pending           = deliveries.filter(o => !o.commission_paid);
+      const total_commission  = deliveries.reduce((s, o) => s + Number(o.deliverer_commission || 0), 0);
+      const paid_commission   = paid.reduce((s, o) => s + Number(o.deliverer_commission || 0), 0);
+      const pending_commission = pending.reduce((s, o) => s + Number(o.deliverer_commission || 0), 0);
+      return {
+        ...d,
+        deliveries: deliveries.length,
+        total_commission: total_commission.toFixed(2),
+        paid_commission: paid_commission.toFixed(2),
+        pending_commission: pending_commission.toFixed(2),
+        orders: deliveries,
+      };
     });
 
     res.json({ summary, orders });
