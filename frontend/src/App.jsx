@@ -3,6 +3,8 @@ import { ShoppingCart, LogOut, Lock } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+const PLAN_ERROR_CODES = new Set(['TRIAL_EXPIRED', 'PLAN_INACTIVE', 'PLAN_EXPIRED', 'TRIAL_LIMIT']);
+
 const apiFetch = async (path, options = {}) => {
   const { headers: extraHeaders, ...rest } = options;
   const res = await fetch(`${API_URL}${path}`, {
@@ -11,7 +13,11 @@ const apiFetch = async (path, options = {}) => {
     ...rest,
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Erro na requisição');
+  if (!res.ok) {
+    const err = new Error(data.error || 'Erro na requisição');
+    err.code = data.code;
+    throw err;
+  }
   return data;
 };
 
@@ -127,6 +133,15 @@ export default function App() {
     setTimeout(() => setAlert({ msg: '', type: '' }), 4000);
   };
 
+  const handleFetchError = (err) => {
+    if (PLAN_ERROR_CODES.has(err.code)) {
+      showAlert(err.message, 'error');
+      setScreen('plans');
+      return true;
+    }
+    return false;
+  };
+
   // Carregar produtos e restaurar sessão via cookie httpOnly
   useEffect(() => {
     fetchProducts();
@@ -169,28 +184,28 @@ export default function App() {
     try {
       const data = await apiFetch('/orders');
       setOrders(Array.isArray(data) ? data.map(o => ({ ...o, id: o._id || o.id })) : []);
-    } catch { /* silencioso */ }
+    } catch (err) { handleFetchError(err); }
   };
 
   const fetchDashboard = async () => {
     try {
       const data = await apiFetch('/admin/dashboard');
       setDashboard(data);
-    } catch { /* silencioso */ }
+    } catch (err) { handleFetchError(err); }
   };
 
   const fetchDeliverers = async () => {
     try {
       const data = await apiFetch('/deliverers');
       setDeliverers(Array.isArray(data) ? data : []);
-    } catch { /* silencioso */ }
+    } catch (err) { handleFetchError(err); }
   };
 
   const fetchAdminProducts = async () => {
     try {
       const data = await apiFetch('/admin/products');
       setProducts(data.map(p => ({ ...p, id: p.id, icon: p.emoji || '🫐' })));
-    } catch (err) { showAlert('Erro ao carregar produtos: ' + err.message); }
+    } catch (err) { if (!handleFetchError(err)) showAlert('Erro ao carregar produtos: ' + err.message); }
   };
 
   const subscribePlan = async (plan_id) => {
@@ -602,8 +617,12 @@ export default function App() {
             }}>{label}</button>
           ))}
           <button onClick={() => setScreen('menu')} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px' }}>Ver Cardápio</button>
-          <button onClick={() => setScreen('plans')} style={{ background: planStatus?.plan_status === 'active' && planStatus?.plan !== 'trial' ? '#e8f5e9' : '#fff8e1', border: 'none', color: planStatus?.plan_status === 'active' && planStatus?.plan !== 'trial' ? '#2e7d32' : '#f57f17', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
-            {planStatus?.plan_status === 'active' && planStatus?.plan !== 'trial' ? '✓ Plano Ativo' : '⚠️ Planos'}
+          <button onClick={() => setScreen('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
+            {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active'
+              ? '✓ Plano Ativo'
+              : planStatus?.plan === 'trial'
+                ? `⏳ Trial: ${planStatus.trial_days_left ?? '?'}d`
+                : '⚠️ Planos'}
           </button>
           <button onClick={logout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 'bold' }}>
             <LogOut size={14} /> Sair

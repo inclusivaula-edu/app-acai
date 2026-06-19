@@ -83,6 +83,8 @@ const PLANS = {
   annual:     { name: 'Anual',     price: 210.00, months: 12, priceId: process.env.STRIPE_PRICE_ANNUAL     },
 };
 
+const TRIAL_DAYS = 14;
+
 // ── Opções de cookie httpOnly ──────────────────
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -103,6 +105,45 @@ const auth = (req, res, next) => {
     next();
   } catch {
     res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
+  }
+};
+
+// ── Verificação de plano ────────────────────────────────
+const planCheck = async (req, res, next) => {
+  try {
+    const { data: vendor, error } = await supabase
+      .from('vendors')
+      .select('plan, plan_status, plan_expires_at, created_at')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error || !vendor) return res.status(403).json({ error: 'Vendor não encontrado', code: 'VENDOR_NOT_FOUND' });
+
+    if (vendor.plan === 'trial') {
+      const trialEnd = new Date(vendor.created_at);
+      trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
+      if (new Date() > trialEnd) {
+        return res.status(403).json({
+          error: `Seu período de trial de ${TRIAL_DAYS} dias encerrou. Assine um plano para continuar.`,
+          code: 'TRIAL_EXPIRED',
+        });
+      }
+    } else if (vendor.plan_status !== 'active') {
+      return res.status(403).json({
+        error: 'Sua assinatura está inativa. Renove seu plano para continuar.',
+        code: 'PLAN_INACTIVE',
+      });
+    } else if (vendor.plan_expires_at && new Date(vendor.plan_expires_at) < new Date()) {
+      return res.status(403).json({
+        error: 'Sua assinatura expirou. Renove seu plano para continuar.',
+        code: 'PLAN_EXPIRED',
+      });
+    }
+
+    req.vendor = vendor;
+    next();
+  } catch {
+    res.status(500).json({ error: 'Erro ao verificar plano' });
   }
 };
 
@@ -242,9 +283,17 @@ app.post('/api/plans/subscribe', auth, async (req, res) => {
 app.get('/api/plans/status', auth, async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('vendors').select('plan, plan_status, plan_expires_at').eq('id', req.user.id).single();
+      .from('vendors').select('plan, plan_status, plan_expires_at, created_at').eq('id', req.user.id).single();
     if (error) return sbErr(error, res);
-    res.json(data);
+
+    let trial_days_left = null;
+    if (data.plan === 'trial') {
+      const trialEnd = new Date(data.created_at);
+      trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
+      trial_days_left = Math.max(0, Math.ceil((trialEnd - new Date()) / (1000 * 60 * 60 * 24)));
+    }
+
+    res.json({ plan: data.plan, plan_status: data.plan_status, plan_expires_at: data.plan_expires_at, trial_days_left });
   } catch {
     res.status(500).json({ error: 'Erro interno' });
   }
@@ -390,7 +439,7 @@ app.get('/api/products', async (req, res) => {
 // ============================================
 // PRODUTOS: LISTAR TODOS (admin — inclui inativos)
 // ============================================
-app.get('/api/admin/products', auth, async (req, res) => {
+app.get('/api/admin/products', [auth, planCheck], async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('products')
@@ -409,12 +458,23 @@ app.get('/api/admin/products', auth, async (req, res) => {
 // ============================================
 // PRODUTOS: CRIAR (vendor)
 // ============================================
-app.post('/api/products', auth, async (req, res) => {
+app.post('/api/products', [auth, planCheck], async (req, res) => {
   try {
     if (req.user.role !== 'vendor') return res.status(403).json({ error: 'Apenas vendors' });
 
     const { name, description, price, category, emoji, calories, ingredients, allergens } = req.body;
     if (!name || price == null || !category) return res.status(400).json({ error: 'Nome, preço e categoria são obrigatórios' });
+
+    if (req.vendor.plan === 'trial') {
+      const { count, error: cErr } = await supabase
+        .from('products').select('id', { count: 'exact', head: true }).eq('vendor_id', req.user.id);
+      if (!cErr && count >= 5) {
+        return res.status(403).json({
+          error: 'Limite de 5 produtos no trial. Assine um plano para adicionar mais.',
+          code: 'TRIAL_LIMIT',
+        });
+      }
+    }
 
     const parsedPrice = parseFloat(price);
     if (isNaN(parsedPrice) || parsedPrice < 0) return res.status(400).json({ error: 'Preço inválido' });
@@ -447,7 +507,7 @@ app.post('/api/products', auth, async (req, res) => {
 // ============================================
 // PRODUTOS: ATUALIZAR (vendor)
 // ============================================
-app.put('/api/products/:id', auth, async (req, res) => {
+app.put('/api/products/:id', [auth, planCheck], async (req, res) => {
   try {
     const allowed = ['name','description','price','category','emoji','available','calories','ingredients','allergens'];
     const updates = Object.fromEntries(
@@ -482,7 +542,7 @@ app.put('/api/products/:id', auth, async (req, res) => {
 // ============================================
 // PRODUTOS: DELETAR (vendor)
 // ============================================
-app.delete('/api/products/:id', auth, async (req, res) => {
+app.delete('/api/products/:id', [auth, planCheck], async (req, res) => {
   try {
     const { error } = await supabase
       .from('products')
@@ -591,7 +651,7 @@ app.post('/api/orders', async (req, res) => {
 // ============================================
 // PEDIDOS: LISTAR (vendor)
 // ============================================
-app.get('/api/orders', auth, async (req, res) => {
+app.get('/api/orders', [auth, planCheck], async (req, res) => {
   try {
     if (req.user.role !== 'vendor') return res.status(403).json({ error: 'Acesso negado' });
 
@@ -616,7 +676,7 @@ app.get('/api/orders', auth, async (req, res) => {
 // ============================================
 // PEDIDOS: CONFIRMAR PAGAMENTO (vendor)
 // ============================================
-app.post('/api/orders/:id/confirm-payment', auth, async (req, res) => {
+app.post('/api/orders/:id/confirm-payment', [auth, planCheck], async (req, res) => {
   try {
     const { deliverer_id } = req.body;
 
@@ -661,7 +721,7 @@ app.post('/api/orders/:id/confirm-payment', auth, async (req, res) => {
 // ============================================
 // PEDIDOS: ATUALIZAR STATUS (vendor)
 // ============================================
-app.put('/api/orders/:id', auth, async (req, res) => {
+app.put('/api/orders/:id', [auth, planCheck], async (req, res) => {
   try {
     const VALID = ['aguardando_pagamento','confirmado','em_preparo','pronto','em_entrega','entregue','cancelado'];
     const { status, vendor_notes, deliverer_id } = req.body;
@@ -692,7 +752,7 @@ app.put('/api/orders/:id', auth, async (req, res) => {
 // ============================================
 // PEDIDOS: ATRIBUIR ENTREGADOR (sem mudar status)
 // ============================================
-app.patch('/api/orders/:id/deliverer', auth, async (req, res) => {
+app.patch('/api/orders/:id/deliverer', [auth, planCheck], async (req, res) => {
   try {
     const { deliverer_id } = req.body;
 
@@ -751,7 +811,7 @@ app.post('/api/payments/create-intent', async (req, res) => {
 // ============================================
 // PAGAMENTOS: confirmar (requer autenticação + ownership)
 // ============================================
-app.post('/api/payments/confirm', auth, async (req, res) => {
+app.post('/api/payments/confirm', [auth, planCheck], async (req, res) => {
   try {
     const { payment_id, order_id } = req.body;
 
@@ -782,7 +842,7 @@ app.post('/api/payments/confirm', auth, async (req, res) => {
 // ============================================
 // DASHBOARD ADMIN
 // ============================================
-app.get('/api/admin/dashboard', auth, async (req, res) => {
+app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
   try {
     if (req.user.role !== 'vendor') return res.status(403).json({ error: 'Acesso negado' });
 
@@ -824,7 +884,7 @@ app.get('/api/admin/dashboard', auth, async (req, res) => {
 // ============================================
 // ENTREGADORES: LISTAR
 // ============================================
-app.get('/api/deliverers', auth, async (req, res) => {
+app.get('/api/deliverers', [auth, planCheck], async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('deliverers')
@@ -841,7 +901,7 @@ app.get('/api/deliverers', auth, async (req, res) => {
 // ============================================
 // ENTREGADORES: CRIAR
 // ============================================
-app.post('/api/deliverers', auth, async (req, res) => {
+app.post('/api/deliverers', [auth, planCheck], async (req, res) => {
   try {
     const { name, phone, cpf, vehicle, commission_rate } = req.body;
     if (!name || !phone) return res.status(400).json({ error: 'Nome e telefone obrigatórios' });
@@ -859,7 +919,7 @@ app.post('/api/deliverers', auth, async (req, res) => {
 // ============================================
 // ENTREGADORES: ATUALIZAR
 // ============================================
-app.put('/api/deliverers/:id', auth, async (req, res) => {
+app.put('/api/deliverers/:id', [auth, planCheck], async (req, res) => {
   try {
     const allowed = ['name','phone','cpf','vehicle','commission_rate','status'];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
@@ -879,7 +939,7 @@ app.put('/api/deliverers/:id', auth, async (req, res) => {
 // ============================================
 // ENTREGADORES: DELETAR
 // ============================================
-app.delete('/api/deliverers/:id', auth, async (req, res) => {
+app.delete('/api/deliverers/:id', [auth, planCheck], async (req, res) => {
   try {
     const { error } = await supabase
       .from('deliverers')
@@ -896,7 +956,7 @@ app.delete('/api/deliverers/:id', auth, async (req, res) => {
 // ============================================
 // COMISSÕES: RELATÓRIO POR PERÍODO
 // ============================================
-app.get('/api/commissions', auth, async (req, res) => {
+app.get('/api/commissions', [auth, planCheck], async (req, res) => {
   try {
     const { start, end } = req.query;
     let query = supabase
