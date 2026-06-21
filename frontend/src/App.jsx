@@ -5,11 +5,15 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const PLAN_ERROR_CODES = new Set(['TRIAL_EXPIRED', 'PLAN_INACTIVE', 'PLAN_EXPIRED', 'TRIAL_LIMIT']);
 
+// Token em memória — mais confiável que cookie cross-origin em alguns ambientes
+let authToken = null;
+
 const apiFetch = async (path, options = {}) => {
   const { headers: extraHeaders, ...rest } = options;
+  const authHeaders = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
   const res = await fetch(`${API_URL}${path}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    headers: { 'Content-Type': 'application/json', ...authHeaders, ...extraHeaders },
     ...rest,
   });
   const data = await res.json();
@@ -143,12 +147,15 @@ export default function App() {
     return false;
   };
 
-  // Carregar produtos e restaurar sessão via cookie httpOnly
+  // Carregar produtos e restaurar sessão via cookie ou token em memória
   useEffect(() => {
     fetchProducts();
     apiFetch('/plans').then(setPlans).catch(() => {});
     apiFetch('/auth/me')
-      .then(data => setUser(data.user))
+      .then(data => {
+        if (data.token) authToken = data.token;
+        setUser(data.user);
+      })
       .catch(() => {})
       .finally(() => setSessionLoaded(true));
 
@@ -241,6 +248,7 @@ export default function App() {
 
   const logout = async () => {
     try { await apiFetch('/auth/logout', { method: 'POST' }); } catch {}
+    authToken = null;
     setUser(null); setOrders([]); setDashboard(null);
     setScreen('menu');
   };
@@ -254,6 +262,7 @@ export default function App() {
           method: 'POST',
           body: JSON.stringify({ email: e.target.email.value, password: e.target.password.value }),
         });
+        if (data.token) authToken = data.token;
         setUser(data.user);
         setScreen(data.user.role === 'vendor' ? 'admin' : 'menu');
       } catch (err) { showAlert(err.message || 'Email ou senha incorretos'); }
@@ -299,9 +308,11 @@ export default function App() {
             <h1 style={{ margin: 0, fontSize: '22px', color: '#667eea' }}>🫐 Açaí Shop</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {user?.role === 'vendor' && (
-                <button onClick={() => setScreen('admin')} style={{ background: '#f0e7ff', border: 'none', color: '#667eea', cursor: 'pointer', padding: '7px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>📊 Admin</button>
+                <>
+                  <button onClick={() => setScreen('admin')} style={{ background: '#f0e7ff', border: 'none', color: '#667eea', cursor: 'pointer', padding: '7px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>📊 Admin</button>
+                  <button onClick={() => setScreen('plans')} style={{ background: 'none', border: '1px solid #ddd', color: '#667eea', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>Ver Planos</button>
+                </>
               )}
-              <button onClick={() => setScreen('plans')} style={{ background: 'none', border: '1px solid #ddd', color: '#667eea', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>Ver Planos</button>
               {user ? (
                 <button onClick={logout} style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px' }}><LogOut size={14} /> Sair</button>
               ) : (
@@ -903,18 +914,18 @@ export default function App() {
     const openEdit = (p) => { setProductForm({ name: p.name, description: p.description || '', price: p.price, category: p.category, emoji: p.icon || p.emoji || '🫐', calories: p.calories || '', ingredients: p.ingredients || '', allergens: p.allergens || '' }); setEditingProduct({ ...p }); setShowProductForm(true); };
 
     const uploadImage = async (productId, file) => {
-      const content_type = file.type;
-      const { signed_url, public_url } = await apiFetch(`/products/${productId}/image-url`, {
-        method: 'POST', body: JSON.stringify({ content_type }),
+      if (file.size > 5 * 1024 * 1024) throw new Error('Imagem muito grande (máx. 5MB)');
+      const headers = { 'Content-Type': file.type };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const res = await fetch(`${API_URL}/products/${productId}/upload-image`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers,
+        body: file,
       });
-      const uploadRes = await fetch(signed_url, {
-        method: 'PUT', headers: { 'Content-Type': content_type }, body: file,
-      });
-      if (!uploadRes.ok) throw new Error('Falha no upload da imagem');
-      await apiFetch(`/products/${productId}/image`, {
-        method: 'PATCH', body: JSON.stringify({ image_url: public_url }),
-      });
-      return public_url;
+      const data = await res.json().catch(() => ({ error: 'Erro no upload' }));
+      if (!res.ok) throw new Error(data.error || 'Erro no upload');
+      return data.image_url;
     };
 
     const saveProduct = async (e) => {

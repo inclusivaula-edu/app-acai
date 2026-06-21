@@ -38,7 +38,7 @@ app.use(cors({
   origin: [FRONTEND_URL, 'http://localhost:3000', 'http://localhost:5001'],
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE'],
-  allowedHeaders: ['Content-Type'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 app.use(express.json({
@@ -100,10 +100,10 @@ const COOKIE_OPTS = {
 // ============================================
 const auth = (req, res, next) => {
   try {
-    // Lê do cookie httpOnly primeiro; Authorization header como fallback de API
     const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'Não autenticado' });
-    req.user = jwt.verify(token, JWT_SECRET);
+    req.user  = jwt.verify(token, JWT_SECRET);
+    req.token = token;
     next();
   } catch {
     res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
@@ -325,7 +325,7 @@ app.post('/api/plans/portal', auth, async (req, res) => {
 // AUTH: SESSÃO ATUAL
 // ============================================
 app.get('/api/auth/me', auth, (req, res) => {
-  res.json({ user: req.user });
+  res.json({ user: req.user, token: req.token });
 });
 
 // ============================================
@@ -365,7 +365,7 @@ app.post('/api/auth/register-vendor', async (req, res) => {
     );
 
     res.cookie('token', token, COOKIE_OPTS);
-    res.status(201).json({ message: 'Vendor registrado com sucesso', vendor });
+    res.status(201).json({ message: 'Vendor registrado com sucesso', vendor, token });
   } catch {
     res.status(500).json({ error: 'Erro interno ao registrar' });
   }
@@ -401,7 +401,8 @@ app.post('/api/auth/login', async (req, res) => {
     res.cookie('token', token, COOKIE_OPTS);
     res.json({
       message: 'Login bem-sucedido',
-      user: { id: user.id, email: user.email, name: user.name, role: user.role }
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      token,
     });
   } catch {
     res.status(500).json({ error: 'Erro interno ao fazer login' });
@@ -951,6 +952,43 @@ app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
     });
   } catch {
     res.status(500).json({ error: 'Erro interno no dashboard' });
+  }
+});
+
+// ============================================
+// PRODUTOS: IMAGEM — upload direto via backend (evita CORS do Supabase)
+// ============================================
+app.put('/api/products/:id/upload-image', [auth, planCheck, express.raw({ type: '*/*', limit: '6mb' })], async (req, res) => {
+  try {
+    if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'Arquivo de imagem obrigatório' });
+
+    const { data: product } = await supabase
+      .from('products').select('id').eq('id', req.params.id).eq('vendor_id', req.user.id).single();
+    if (!product) return res.status(404).json({ error: 'Produto não encontrado' });
+
+    const content_type = (req.headers['content-type'] || 'image/jpeg').split(';')[0].trim();
+    const ext  = content_type.split('/')[1]?.split('+')[0] || 'jpg';
+    const path = `${req.user.id}/${req.params.id}.${ext}`;
+
+    const { error: bErr } = await supabase.storage.getBucket('product-images');
+    if (bErr) await supabase.storage.createBucket('product-images', { public: true, fileSizeLimit: 5242880 });
+
+    const { error: uploadErr } = await supabase.storage.from('product-images').upload(path, req.body, {
+      contentType: content_type,
+      upsert: true,
+    });
+    if (uploadErr) { console.error('Storage upload error:', uploadErr); return res.status(500).json({ error: 'Erro ao fazer upload da imagem' }); }
+
+    const { data: { publicUrl } } = supabase.storage.from('product-images').getPublicUrl(path);
+    const cacheBustedUrl = `${publicUrl}?t=${Date.now()}`;
+
+    const { data, error } = await supabase
+      .from('products').update({ image_url: cacheBustedUrl }).eq('id', req.params.id).eq('vendor_id', req.user.id).select().single();
+    if (error) return sbErr(error, res);
+
+    res.json({ message: 'Imagem atualizada', image_url: cacheBustedUrl, product: data });
+  } catch {
+    res.status(500).json({ error: 'Erro interno ao fazer upload' });
   }
 });
 
