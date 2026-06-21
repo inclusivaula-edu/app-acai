@@ -536,6 +536,12 @@ export default function App() {
                 🚚 Entrega<br /><span style={{ fontWeight: 'normal', fontSize: '13px', opacity: 0.9 }}>30–40 min • +R$ {deliveryFee.toFixed(2)}</span>
               </button>
             </div>
+            <p style={{ fontSize: '11px', color: '#bbb', textAlign: 'center', marginTop: '16px', marginBottom: 0 }}>
+              Ao fazer o pedido você concorda com os nossos{' '}
+              <button onClick={() => setScreen('terms')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Termos de Uso</button>
+              {' '}e{' '}
+              <button onClick={() => setScreen('privacy')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Política de Privacidade</button>.
+            </p>
           </div>
         </div>
       </div>
@@ -655,6 +661,10 @@ export default function App() {
 
           <div style={{ textAlign: 'center', marginTop: '32px', color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>
             Pagamento seguro via Stripe · Cancele quando quiser
+            <div style={{ marginTop: '8px' }}>
+              <button onClick={() => setScreen('privacy')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline', marginRight: '12px' }}>Política de Privacidade</button>
+              <button onClick={() => setScreen('terms')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}>Termos de Uso</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1349,6 +1359,74 @@ export default function App() {
               </div>
             </>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── POLÍTICA DE PRIVACIDADE ─────────────────────────────────────────────────
+  if (screen === 'privacy') {
+    const prevScreen = user?.role === 'vendor' ? 'plans' : (vendorSlug ? 'menu' : 'login');
+    return (
+      <div style={{ background: '#f5f5f5', minHeight: '100vh', padding: '20px' }}>
+        <div style={{ maxWidth: '760px', margin: '0 auto' }}>
+          <button onClick={() => setScreen(prevScreen)} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', marginBottom: '20px', fontWeight: 'bold', fontSize: '15px' }}>← Voltar</button>
+          <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+            <h1 style={{ margin: '0 0 8px 0', color: '#333', fontSize: '26px' }}>🔒 Política de Privacidade</h1>
+            <p style={{ color: '#999', fontSize: '13px', marginTop: 0 }}>Última atualização: junho de 2025</p>
+
+            {[
+              { title: '1. Quem somos', body: 'O Açaí Shop é uma plataforma de pedidos online para estabelecimentos de açaí. Atuamos como operador de dados em nome de cada lojista cadastrado, que é o controlador dos dados de seus clientes, conforme a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018).' },
+              { title: '2. Dados que coletamos', body: 'Coletamos os dados que você nos fornece ao fazer um pedido: nome completo, número de WhatsApp, endereço de e-mail (opcional) e o conteúdo do seu pedido. Lojistas também fornecem e-mail e senha para acesso à plataforma.' },
+              { title: '3. Como usamos seus dados', body: 'Seus dados são usados exclusivamente para: (a) processar e acompanhar seu pedido; (b) enviar confirmações de pedido pelo WhatsApp; (c) contato do estabelecimento sobre seu pedido. Não vendemos nem compartilhamos seus dados com terceiros para fins de marketing.' },
+              { title: '4. Compartilhamento de dados', body: 'Seus dados são compartilhados apenas com: (a) o estabelecimento ao qual você fez o pedido; (b) a Supabase Inc., nosso provedor de banco de dados (EUA, com cláusulas contratuais padrão da LGPD); (c) a Stripe Inc., para processamento de pagamentos de assinaturas de lojistas — dados de clientes finais não são enviados ao Stripe.' },
+              { title: '5. Armazenamento e segurança', body: 'Os dados são armazenados em servidores protegidos da Supabase. Senhas de lojistas são armazenadas com criptografia bcrypt. Tokens de autenticação expiram em 24 horas. Comunicações são criptografadas via HTTPS/TLS.' },
+              { title: '6. Seus direitos (LGPD)', body: 'Você tem direito a: confirmar se tratamos seus dados; acessar seus dados; corrigir dados incompletos ou desatualizados; solicitar a eliminação dos dados; revogar consentimento a qualquer momento. Para exercer esses direitos, entre em contato pelo e-mail abaixo.' },
+              { title: '7. Retenção de dados', body: 'Pedidos são mantidos por até 1 ano para fins de suporte e auditoria. Você pode solicitar a exclusão antecipada dos seus dados a qualquer momento.' },
+              { title: '8. Cookies', body: 'Utilizamos apenas cookies estritamente necessários para manter sua sessão autenticada como lojista. Não utilizamos cookies de rastreamento ou publicidade.' },
+              { title: '9. Contato', body: 'Dúvidas ou solicitações sobre privacidade: 17digital.ap@gmail.com' },
+            ].map(({ title, body }) => (
+              <div key={title} style={{ marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '16px', color: '#444', marginBottom: '8px' }}>{title}</h2>
+                <p style={{ color: '#666', lineHeight: '1.7', margin: 0, fontSize: '14px' }}>{body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── TERMOS DE USO ────────────────────────────────────────────────────────────
+  if (screen === 'terms') {
+    const prevScreen = user?.role === 'vendor' ? 'plans' : (vendorSlug ? 'menu' : 'login');
+    return (
+      <div style={{ background: '#f5f5f5', minHeight: '100vh', padding: '20px' }}>
+        <div style={{ maxWidth: '760px', margin: '0 auto' }}>
+          <button onClick={() => setScreen(prevScreen)} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', marginBottom: '20px', fontWeight: 'bold', fontSize: '15px' }}>← Voltar</button>
+          <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+            <h1 style={{ margin: '0 0 8px 0', color: '#333', fontSize: '26px' }}>📄 Termos de Uso</h1>
+            <p style={{ color: '#999', fontSize: '13px', marginTop: 0 }}>Última atualização: junho de 2025</p>
+
+            {[
+              { title: '1. Aceitação dos Termos', body: 'Ao utilizar o Açaí Shop — seja como cliente final fazendo um pedido ou como lojista gerenciando sua loja — você concorda com estes Termos de Uso. Se não concordar, não utilize a plataforma.' },
+              { title: '2. O Serviço', body: 'O Açaí Shop é uma plataforma de gestão de pedidos que conecta clientes a estabelecimentos de açaí. Somos intermediários tecnológicos: o contrato de compra e venda é firmado diretamente entre o cliente e o estabelecimento. Não somos responsáveis pela qualidade, preparo ou entrega dos produtos.' },
+              { title: '3. Clientes finais', body: 'Ao fazer um pedido você fornece seus dados voluntariamente e os disponibiliza ao estabelecimento para fins de processamento do pedido. Você é responsável pelas informações fornecidas. Pedidos com dados incorretos podem não ser atendidos.' },
+              { title: '4. Lojistas — Planos e pagamentos', body: 'O acesso ao painel de gestão requer uma assinatura paga via Stripe. Os valores dos planos estão disponíveis na página de Planos. Assinaturas são cobradas automaticamente no período contratado e podem ser canceladas a qualquer momento pelo portal do cliente. O cancelamento encerra a renovação automática mas não gera reembolso pelo período já pago.' },
+              { title: '5. Período de teste', body: 'Novos lojistas recebem um período de teste gratuito de 14 dias com acesso completo à plataforma. Não é necessário cartão de crédito durante o período de teste.' },
+              { title: '6. Uso adequado', body: 'É proibido: usar a plataforma para fins ilegais; tentar acessar dados de outros usuários ou lojas; realizar ataques de negação de serviço; enviar conteúdo ofensivo ou spam. O descumprimento pode resultar no encerramento imediato da conta.' },
+              { title: '7. Disponibilidade', body: 'Empreendemos esforços razoáveis para manter a plataforma disponível 24/7, mas não garantimos disponibilidade ininterrupta. Manutenções programadas serão comunicadas com antecedência quando possível.' },
+              { title: '8. Limitação de responsabilidade', body: 'Não somos responsáveis por: danos decorrentes de indisponibilidade temporária da plataforma; qualidade ou entrega dos produtos pelos estabelecimentos; perda de dados por eventos fora do nosso controle (force majeure). Nossa responsabilidade máxima está limitada ao valor pago pelo plano no mês em que ocorreu o dano.' },
+              { title: '9. Alterações nos Termos', body: 'Podemos atualizar estes Termos periodicamente. Notificaremos lojistas por e-mail em caso de alterações relevantes. O uso continuado da plataforma após a notificação constitui aceite das alterações.' },
+              { title: '10. Lei aplicável e foro', body: 'Estes Termos são regidos pela legislação brasileira. Fica eleito o foro da Comarca de São Paulo/SP para dirimir quaisquer controvérsias decorrentes deste instrumento.' },
+              { title: '11. Contato', body: 'Dúvidas sobre estes Termos: 17digital.ap@gmail.com' },
+            ].map(({ title, body }) => (
+              <div key={title} style={{ marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '16px', color: '#444', marginBottom: '8px' }}>{title}</h2>
+                <p style={{ color: '#666', lineHeight: '1.7', margin: 0, fontSize: '14px' }}>{body}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
