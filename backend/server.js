@@ -74,6 +74,13 @@ const sbErr = (error, res) => {
   return res.status(500).json({ error: 'Erro interno' });
 };
 
+// ── Helper: gera slug URL-safe a partir do nome ─
+const generateSlug = (name) =>
+  name.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
 // ── Stripe ────────────────────────────────────
 const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
@@ -210,6 +217,24 @@ app.post('/api/webhooks/stripe', async (req, res) => {
   }
 
   res.json({ received: true });
+});
+
+// ============================================
+// LOJA PÚBLICA: info por slug (multi-tenant)
+// ============================================
+app.get('/api/store/:slug', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('vendors')
+      .select('name, slug, deliveries_enabled')
+      .eq('slug', req.params.slug)
+      .eq('status', 'active')
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Loja não encontrada' });
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
 });
 
 // ============================================
@@ -350,10 +375,20 @@ app.post('/api/auth/register-vendor', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
 
+    // Gera slug único a partir do nome
+    let slug = generateSlug(name) || 'loja';
+    let attempt = 0;
+    while (true) {
+      const { data: taken } = await supabase.from('vendors').select('id').eq('slug', slug).maybeSingle();
+      if (!taken) break;
+      attempt++;
+      slug = `${generateSlug(name)}-${attempt + 1}`;
+    }
+
     const { data: vendor, error } = await supabase
       .from('vendors')
-      .insert({ email, password: hashed, name, phone, address, cpf })
-      .select('id, email, name, role')
+      .insert({ email, password: hashed, name, phone, address, cpf, slug })
+      .select('id, email, name, role, slug')
       .single();
 
     if (error) return sbErr(error, res);
@@ -418,13 +453,21 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // ============================================
-// PRODUTOS: LISTAR (público — só ativos)
+// PRODUTOS: LISTAR (público — filtrado por loja)
 // ============================================
 app.get('/api/products', async (req, res) => {
   try {
+    const { loja } = req.query;
+    if (!loja) return res.status(400).json({ error: 'Parâmetro ?loja= obrigatório' });
+
+    const { data: vendor } = await supabase
+      .from('vendors').select('id').eq('slug', loja).eq('status', 'active').maybeSingle();
+    if (!vendor) return res.status(404).json({ error: 'Loja não encontrada' });
+
     let query = supabase
       .from('products')
       .select('*')
+      .eq('vendor_id', vendor.id)
       .eq('available', true)
       .order('category')
       .order('created_at', { ascending: false });
@@ -598,15 +641,17 @@ app.post('/api/orders', async (req, res) => {
       });
     }
 
-    // Pegar o primeiro vendor ativo (MVP single-vendor)
+    const { vendor_slug } = req.body;
+    if (!vendor_slug) return res.status(400).json({ error: 'vendor_slug obrigatório' });
+
     const { data: vendor, error: vErr } = await supabase
       .from('vendors')
       .select('id, deliveries_enabled')
+      .eq('slug', vendor_slug)
       .eq('status', 'active')
-      .limit(1)
       .single();
 
-    if (vErr || !vendor) return res.status(500).json({ error: 'Nenhum vendor disponível' });
+    if (vErr || !vendor) return res.status(404).json({ error: 'Loja não encontrada' });
 
     if (delivery_type === 'entrega' && vendor.deliveries_enabled === false)
       return res.status(400).json({ error: 'Entregas não disponíveis no momento. Escolha retirada no local.' });
@@ -889,7 +934,7 @@ app.patch('/api/orders/:id/commission-paid', [auth, planCheck], async (req, res)
 app.get('/api/vendors/settings', auth, async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('vendors').select('deliveries_enabled').eq('id', req.user.id).single();
+      .from('vendors').select('deliveries_enabled, slug, name').eq('id', req.user.id).single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
@@ -897,12 +942,21 @@ app.get('/api/vendors/settings', auth, async (req, res) => {
   }
 });
 
-app.patch('/api/vendors/settings', [auth, planCheck], async (req, res) => {
+app.patch('/api/vendors/settings', auth, async (req, res) => {
   try {
-    const allowed = ['deliveries_enabled'];
+    const allowed = ['deliveries_enabled', 'slug'];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+
+    if (updates.slug !== undefined) {
+      const slug = String(updates.slug).toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-|-$/g, '');
+      if (slug.length < 2) return res.status(400).json({ error: 'Link muito curto (mínimo 2 caracteres)' });
+      const { data: taken } = await supabase.from('vendors').select('id').eq('slug', slug).neq('id', req.user.id).maybeSingle();
+      if (taken) return res.status(400).json({ error: 'Este link já está em uso por outra loja' });
+      updates.slug = slug;
+    }
+
     const { data, error } = await supabase
-      .from('vendors').update(updates).eq('id', req.user.id).select('deliveries_enabled').single();
+      .from('vendors').update(updates).eq('id', req.user.id).select('deliveries_enabled, slug, name').single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {

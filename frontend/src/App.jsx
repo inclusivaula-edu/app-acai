@@ -8,6 +8,9 @@ const PLAN_ERROR_CODES = new Set(['TRIAL_EXPIRED', 'PLAN_INACTIVE', 'PLAN_EXPIRE
 // Token em memória — mais confiável que cookie cross-origin em alguns ambientes
 let authToken = null;
 
+// Slug da loja lido uma vez da URL ao carregar a página
+let vendorSlug = new URLSearchParams(window.location.search).get('loja') || null;
+
 const apiFetch = async (path, options = {}) => {
   const { headers: extraHeaders, ...rest } = options;
   const authHeaders = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
@@ -101,7 +104,8 @@ const Select = ({ label, id, children, ...props }) => (
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [screen, setScreen]           = useState('menu');
+  const [screen, setScreen]           = useState(vendorSlug ? 'menu' : 'login');
+  const [storeInfo, setStoreInfo]     = useState(null);
   const [user, setUser]               = useState(null);
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [products, setProducts]       = useState([]);
@@ -147,14 +151,20 @@ export default function App() {
     return false;
   };
 
-  // Carregar produtos e restaurar sessão via cookie ou token em memória
+  // Carregar info da loja, produtos e restaurar sessão
   useEffect(() => {
-    fetchProducts();
+    if (vendorSlug) {
+      apiFetch(`/store/${vendorSlug}`)
+        .then(info => { setStoreInfo(info); fetchProducts(); })
+        .catch(() => setStoreInfo(false));
+    }
     apiFetch('/plans').then(setPlans).catch(() => {});
     apiFetch('/auth/me')
       .then(data => {
         if (data.token) authToken = data.token;
         setUser(data.user);
+        // Sem loja na URL e já autenticado como vendor → vai direto pro admin
+        if (!vendorSlug && data.user?.role === 'vendor') setScreen('admin');
       })
       .catch(() => {})
       .finally(() => setSessionLoaded(true));
@@ -162,7 +172,7 @@ export default function App() {
     // Tratar retorno do Stripe Checkout
     const params = new URLSearchParams(window.location.search);
     if (params.get('plan_success')) {
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', window.location.pathname);
       setScreen('admin');
     }
   }, []);
@@ -183,8 +193,9 @@ export default function App() {
   }, [user, screen]);
 
   const fetchProducts = async () => {
+    if (!vendorSlug) return;
     try {
-      const data = await apiFetch('/products');
+      const data = await apiFetch(`/products?loja=${vendorSlug}`);
       setProducts(data.map(p => ({ ...p, id: p._id || p.id, icon: p.emoji || p.icon || '🫐' })));
     } catch { showAlert('Erro ao carregar produtos'); }
   };
@@ -281,9 +292,11 @@ export default function App() {
             <Input label="Senha" id="password" name="password" type="password" required placeholder="••••••••" />
             <Btn type="submit" disabled={loading} style={{ width: '100%' }}>{loading ? 'Entrando...' : 'Entrar'}</Btn>
           </form>
-          <div style={{ textAlign: 'center', marginTop: '20px' }}>
-            <button onClick={() => setScreen('menu')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px' }}>← Voltar ao Cardápio</button>
-          </div>
+          {vendorSlug && (
+            <div style={{ textAlign: 'center', marginTop: '20px' }}>
+              <button onClick={() => setScreen('menu')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px' }}>← Voltar ao Cardápio</button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -291,6 +304,25 @@ export default function App() {
 
   // ─── MENU (público) ───────────────────────────────────────────────────────────
   if (screen === 'menu') {
+    if (!vendorSlug || storeInfo === false) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5', padding: '40px 20px' }}>
+          <div style={{ textAlign: 'center', background: '#fff', borderRadius: '16px', padding: '48px 40px', maxWidth: '400px', boxShadow: '0 4px 24px rgba(0,0,0,0.1)' }}>
+            <div style={{ fontSize: '56px', marginBottom: '16px' }}>😕</div>
+            <h2 style={{ color: '#333', marginBottom: '8px' }}>Loja não encontrada</h2>
+            <p style={{ color: '#999', fontSize: '14px' }}>O link que você acessou não corresponde a nenhuma loja ativa.</p>
+            <button onClick={() => setScreen('login')} style={{ marginTop: '24px', background: 'none', border: '1px solid #ddd', color: '#667eea', cursor: 'pointer', padding: '10px 20px', borderRadius: '8px', fontSize: '14px', fontWeight: 'bold' }}>Área do Lojista</button>
+          </div>
+        </div>
+      );
+    }
+    if (!storeInfo) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ color: '#999', fontSize: '16px' }}>Carregando loja...</div>
+        </div>
+      );
+    }
     const addToCart = (product) => {
       setCart(prev => {
         const existing = prev.find(i => i.id === product.id);
@@ -305,7 +337,7 @@ export default function App() {
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
         <div style={{ background: '#fff', padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
           <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ margin: 0, fontSize: '22px', color: '#667eea' }}>🫐 Açaí Shop</h1>
+            <h1 style={{ margin: 0, fontSize: '22px', color: '#667eea' }}>🫐 {storeInfo?.name || 'Açaí Shop'}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {user?.role === 'vendor' && (
                 <>
@@ -451,6 +483,7 @@ export default function App() {
             customer: { name: customerName.trim(), email: customerEmail.trim(), phone: customerPhone.trim() },
             delivery_type: deliveryType,
             customer_notes: `Pagamento: ${paymentMethod}`,
+            vendor_slug: vendorSlug,
           }),
         });
         setLastOrder(data.order);
@@ -640,7 +673,11 @@ export default function App() {
               cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', padding: '7px 12px', borderRadius: '6px'
             }}>{label}</button>
           ))}
-          <button onClick={() => setScreen('menu')} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px' }}>Ver Cardápio</button>
+          <button onClick={() => {
+            const slug = vendorSettings?.slug;
+            if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
+            else showAlert('Configure o link da loja primeiro (aba Entregadores → Link da Loja)', 'error');
+          }} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px' }}>🔗 Ver Cardápio</button>
           <button onClick={() => setScreen('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
             {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active'
               ? '✓ Plano Ativo'
@@ -1099,6 +1136,54 @@ export default function App() {
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: '28px 20px' }}>
           <Alert msg={alert.msg} type={alert.type} />
 
+          {/* Link da Loja */}
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '12px' }}>🔗 Link da sua loja</div>
+            {vendorSettings?.slug ? (
+              <div style={{ background: '#f0e7ff', borderRadius: '8px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <span style={{ color: '#667eea', fontSize: '14px', fontWeight: 'bold', wordBreak: 'break-all' }}>
+                  {window.location.origin}{window.location.pathname}?loja={vendorSettings.slug}
+                </span>
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?loja=${vendorSettings.slug}`).then(() => showAlert('Link copiado!', 'success'))}
+                    style={{ background: '#667eea', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                  >📋 Copiar</button>
+                  <button
+                    onClick={async () => {
+                      const input = window.prompt('Novo link (letras, números e hífens):', vendorSettings.slug);
+                      if (!input) return;
+                      try {
+                        const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ slug: input }) });
+                        setVendorSettings(prev => ({ ...prev, ...data }));
+                        showAlert('Link atualizado!', 'success');
+                      } catch (err) { showAlert(err.message || 'Erro ao atualizar link'); }
+                    }}
+                    style={{ background: '#f5f5f5', color: '#555', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                  >✏️ Alterar</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff8e1', borderRadius: '8px', padding: '12px 16px' }}>
+                <span style={{ color: '#f57f17', fontSize: '14px' }}>⚠️ Link não configurado — clientes não conseguem acessar sua loja</span>
+                <button
+                  onClick={async () => {
+                    const input = window.prompt('Digite o link da sua loja (letras, números e hífens):');
+                    if (!input) return;
+                    try {
+                      const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ slug: input }) });
+                      setVendorSettings(prev => ({ ...prev, ...data }));
+                      showAlert('Link configurado!', 'success');
+                    } catch (err) { showAlert(err.message || 'Erro ao configurar link'); }
+                  }}
+                  style={{ background: '#f57f17', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', flexShrink: 0, marginLeft: '12px' }}
+                >Configurar Link</button>
+              </div>
+            )}
+            <div style={{ fontSize: '12px', color: '#999', marginTop: '8px' }}>Compartilhe este link com seus clientes para que eles acessem seu cardápio.</div>
+          </div>
+
+          {/* Configuração de entregas */}
           <div style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontWeight: 'bold', fontSize: '16px' }}>🚚 Entregas a domicílio</div>
@@ -1113,7 +1198,7 @@ export default function App() {
                 const next = vendorSettings?.deliveries_enabled === false;
                 try {
                   const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ deliveries_enabled: next }) });
-                  setVendorSettings(data);
+                  setVendorSettings(prev => ({ ...prev, ...data }));
                   showAlert(next ? 'Entregas ativadas!' : 'Entregas desativadas!', 'success');
                 } catch (err) { showAlert(err.message); }
               }}
