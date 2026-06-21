@@ -297,6 +297,10 @@ export default function App() {
               <button onClick={() => setScreen('menu')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px' }}>← Voltar ao Cardápio</button>
             </div>
           )}
+          <div style={{ textAlign: 'center', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
+            <span style={{ fontSize: '14px', color: '#999' }}>Não tem conta? </span>
+            <button onClick={() => setScreen('register')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>Criar conta grátis</button>
+          </div>
         </div>
       </div>
     );
@@ -1359,6 +1363,59 @@ export default function App() {
               </div>
             </>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── CADASTRO DE LOJISTA ─────────────────────────────────────────────────────
+  if (screen === 'register') {
+    const handleRegister = async (e) => {
+      e.preventDefault(); setLoading(true);
+      try {
+        const data = await apiFetch('/auth/register-vendor', {
+          method: 'POST',
+          body: JSON.stringify({
+            name:     e.target.name.value.trim(),
+            email:    e.target.email.value.trim(),
+            password: e.target.password.value,
+            phone:    e.target.phone.value.trim(),
+            address:  e.target.address.value.trim(),
+            cpf:      e.target.cpf.value.trim(),
+          }),
+        });
+        if (data.token) authToken = data.token;
+        setUser(data.vendor);
+        setScreen('admin');
+      } catch (err) { showAlert(err.message || 'Erro ao criar conta'); }
+      finally { setLoading(false); }
+    };
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', maxWidth: '480px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '8px' }}>🫐</div>
+            <h1 style={{ margin: '0 0 6px 0', fontSize: '24px', color: '#333' }}>Criar sua conta</h1>
+            <p style={{ margin: 0, fontSize: '14px', color: '#999' }}>14 dias grátis, sem cartão</p>
+          </div>
+          <Alert msg={alert.msg} type={alert.type} />
+          <form onSubmit={handleRegister}>
+            <Input label="Nome da loja / Responsável *" id="name" name="name" required placeholder="Açaí do João" />
+            <Input label="Email *" id="email" name="email" type="email" required placeholder="joao@email.com" />
+            <Input label="Senha * (mínimo 8 caracteres)" id="password" name="password" type="password" required placeholder="••••••••" minLength={8} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <Input label="Telefone *" id="phone" name="phone" type="tel" required placeholder="(11) 99999-0000" />
+              <Input label="CPF *" id="cpf" name="cpf" required placeholder="000.000.000-00" />
+            </div>
+            <Input label="Endereço *" id="address" name="address" required placeholder="Rua das Flores, 123 — São Paulo/SP" />
+            <Btn type="submit" disabled={loading} style={{ width: '100%', marginTop: '4px' }}>
+              {loading ? 'Criando conta...' : 'Criar conta grátis'}
+            </Btn>
+          </form>
+          <div style={{ textAlign: 'center', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
+            <span style={{ fontSize: '14px', color: '#999' }}>Já tem conta? </span>
+            <button onClick={() => setScreen('login')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>Entrar</button>
+          </div>
         </div>
       </div>
     );
