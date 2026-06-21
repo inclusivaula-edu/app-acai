@@ -608,13 +608,24 @@ app.delete('/api/products/:id', [auth, planCheck], async (req, res) => {
 // ============================================
 app.post('/api/orders', async (req, res) => {
   try {
-    const { items, customer, delivery_type, customer_notes } = req.body;
+    const { items, customer, delivery_type, customer_notes, vendor_slug } = req.body;
 
     if (!items?.length)      return res.status(400).json({ error: 'Pedido deve ter pelo menos 1 item' });
     if (!customer?.name)     return res.status(400).json({ error: 'Nome do cliente é obrigatório' });
     if (!delivery_type)      return res.status(400).json({ error: 'Tipo de entrega obrigatório' });
+    if (!vendor_slug)        return res.status(400).json({ error: 'vendor_slug obrigatório' });
 
-    // Buscar preços do banco — nunca confiar no preço enviado pelo cliente
+    // Resolver vendor antes de validar produtos — garante isolamento multi-tenant
+    const { data: vendor, error: vErr } = await supabase
+      .from('vendors')
+      .select('id, deliveries_enabled')
+      .eq('slug', vendor_slug)
+      .eq('status', 'active')
+      .single();
+
+    if (vErr || !vendor) return res.status(404).json({ error: 'Loja não encontrada' });
+
+    // Buscar preços do banco filtrando por vendor_id — nunca confiar no preço enviado pelo cliente
     const productIds = items.map(i => i.product_id).filter(Boolean);
     if (productIds.length !== items.length)
       return res.status(400).json({ error: 'product_id obrigatório em todos os itens' });
@@ -623,6 +634,7 @@ app.post('/api/orders', async (req, res) => {
       .from('products')
       .select('id, name, price, emoji, available')
       .in('id', productIds)
+      .eq('vendor_id', vendor.id)
       .eq('available', true);
 
     if (pErr) return sbErr(pErr, res);
@@ -640,18 +652,6 @@ app.post('/api/orders', async (req, res) => {
         emoji:      product.emoji,
       });
     }
-
-    const { vendor_slug } = req.body;
-    if (!vendor_slug) return res.status(400).json({ error: 'vendor_slug obrigatório' });
-
-    const { data: vendor, error: vErr } = await supabase
-      .from('vendors')
-      .select('id, deliveries_enabled')
-      .eq('slug', vendor_slug)
-      .eq('status', 'active')
-      .single();
-
-    if (vErr || !vendor) return res.status(404).json({ error: 'Loja não encontrada' });
 
     if (delivery_type === 'entrega' && vendor.deliveries_enabled === false)
       return res.status(400).json({ error: 'Entregas não disponíveis no momento. Escolha retirada no local.' });
