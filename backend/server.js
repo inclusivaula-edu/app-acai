@@ -9,6 +9,8 @@ const bcrypt       = require('bcryptjs');
 const dotenv       = require('dotenv');
 const cookieParser = require('cookie-parser');
 const { createClient } = require('@supabase/supabase-js');
+const ws = require('ws');
+if (!globalThis.WebSocket) globalThis.WebSocket = ws;
 
 dotenv.config();
 
