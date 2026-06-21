@@ -241,10 +241,13 @@ app.get('/api/store/:slug', async (req, res) => {
 // ============================================
 app.get('/api/health', async (req, res) => {
   const { error } = await supabase.from('vendors').select('id').limit(1);
+  const whs = process.env.STRIPE_WEBHOOK_SECRET || '';
   res.json({
     status: 'ok',
     supabase: error ? 'erro' : 'conectado',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    whs_prefix: whs.slice(0, 6),
+    whs_len: whs.length,
   });
 });
 
