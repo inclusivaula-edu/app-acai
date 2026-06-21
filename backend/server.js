@@ -41,13 +41,11 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-app.use(express.json({
-  limit: '100kb',
-  verify: (req, res, buf) => {
-    if (req.originalUrl === '/api/webhooks/stripe') req.rawBody = buf;
-  },
-}));
 app.use(cookieParser());
+app.use((req, res, next) => {
+  if (req.originalUrl === '/api/webhooks/stripe') return next();
+  express.json({ limit: '100kb' })(req, res, next);
+});
 
 // ── Rate limiting simples ──────────────────────
 const hits = new Map();
@@ -159,14 +157,15 @@ const planCheck = async (req, res, next) => {
 // ============================================
 // WEBHOOK STRIPE (antes de qualquer middleware de body)
 // ============================================
-app.post('/api/webhooks/stripe', async (req, res) => {
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Stripe não configurado' });
 
   const sig = req.headers['stripe-signature'];
   let event;
   try {
-    event = stripe.webhooks.constructEvent(req.rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Webhook sig error:', err.message);
     return res.status(400).json({ error: 'Webhook inválido' });
   }
 
