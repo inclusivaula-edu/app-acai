@@ -281,6 +281,46 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
 });
 
 // ============================================
+// WEBHOOK WHATSAPP — Z-API (receber eventos)
+// ============================================
+app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req, res) => {
+  res.json({ received: true }); // responder rápido para Z-API não retentar
+
+  try {
+    const event = req.body;
+    const type  = event?.type || event?.event || 'unknown';
+
+    // Desconexão — logar para o lojista saber que precisa reconectar
+    if (type === 'Disconnected' || type === 'disconnected') {
+      console.warn('⚠️ WhatsApp desconectado! Acesse z-api.io e escaneie o QR Code novamente.');
+      return;
+    }
+
+    // Mensagem recebida de cliente
+    if (type === 'ReceivedCallback' || type === 'received') {
+      const phone   = event?.phone   || event?.from || '';
+      const text    = event?.text?.message || event?.body || '';
+      const fromMe  = event?.fromMe || false;
+      if (!fromMe && phone && text) {
+        console.log(`📲 Mensagem de ${phone}: ${text.substring(0, 120)}`);
+      }
+      return;
+    }
+
+    // Status de entrega (enviado, lido, etc.)
+    if (type === 'MessageStatusCallback' || type === 'message-status') {
+      const status = event?.status || '';
+      if (status === 'READ') {
+        // mensagem lida pelo cliente — apenas logar
+      }
+      return;
+    }
+  } catch (err) {
+    console.error('WhatsApp webhook error:', err.message);
+  }
+});
+
+// ============================================
 // LOJA PÚBLICA: info por slug (multi-tenant)
 // ============================================
 app.get('/api/store/:slug', async (req, res) => {
