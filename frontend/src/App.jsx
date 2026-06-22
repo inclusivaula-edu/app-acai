@@ -1818,6 +1818,55 @@ export default function App() {
             </div>
           </div>
 
+          {/* Configuração WhatsApp Z-API */}
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '4px' }}>💬 WhatsApp (Z-API)</div>
+            <div style={{ fontSize: '13px', color: '#999', marginBottom: '14px' }}>
+              Suas credenciais Z-API para envio de notificações e recebimento de mensagens.{' '}
+              <span style={{ color: '#667eea' }}>Webhook URL: <strong>{`${process.env.REACT_APP_API_URL || ''}/webhooks/whatsapp?vendor_id=SEU_ID&secret=ZAPI_WEBHOOK_SECRET`}</strong></span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px', fontWeight: '600' }}>Instance ID</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    defaultValue={vendorSettings?.zapi_instance_id || ''}
+                    id="zapi-instance"
+                    placeholder="3F5067BC38..."
+                    style={{ flex: 1, padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px', fontWeight: '600' }}>Token</label>
+                <input
+                  defaultValue={vendorSettings?.zapi_token || ''}
+                  id="zapi-token"
+                  placeholder="968911A8C0..."
+                  type="password"
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={async () => {
+                  const instance = document.getElementById('zapi-instance').value.trim();
+                  const token    = document.getElementById('zapi-token').value.trim();
+                  try {
+                    const data = await apiFetch('/vendors/settings', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ zapi_instance_id: instance || null, zapi_token: token || null }),
+                    });
+                    setVendorSettings(prev => ({ ...prev, ...data }));
+                    showAlert('Configuração WhatsApp salva!', 'success');
+                  } catch (err) { showAlert(err.message || 'Erro ao salvar'); }
+                }}
+                style={{ background: '#25D366', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+              >💾 Salvar</button>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h2 style={{ margin: 0 }}>🚴 Entregadores</h2>
             <Btn onClick={openNew}>+ Novo Entregador</Btn>

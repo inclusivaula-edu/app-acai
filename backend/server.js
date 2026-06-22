@@ -91,13 +91,12 @@ function broadcastMessage(msg) {
   }
 }
 
-// ── WhatsApp via Z-API (opcional — configura no .env) ─────────────────────────
-async function sendWhatsApp(phone, message) {
-  let instanceId    = process.env.ZAPI_INSTANCE_ID || '';
-  let token         = process.env.ZAPI_TOKEN || '';
-  const clientToken = process.env.ZAPI_CLIENT_TOKEN || '';
+// ── WhatsApp via Z-API — suporta credenciais por vendor ou fallback para .env ──
+async function sendWhatsApp(phone, message, creds = {}) {
+  let instanceId    = creds.instanceId    || process.env.ZAPI_INSTANCE_ID || '';
+  let token         = creds.token         || process.env.ZAPI_TOKEN        || '';
+  const clientToken = creds.clientToken   || process.env.ZAPI_CLIENT_TOKEN || '';
 
-  // Suporte ao formato URL completa: extrai instance ID e token automaticamente
   if (instanceId.startsWith('http')) {
     const m = instanceId.match(/instances\/([^/]+)\/token\/([^/]+)/);
     if (m) { instanceId = m[1]; token = m[2]; }
@@ -332,6 +331,7 @@ app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req,
       const fromMe     = event?.fromMe || false;
       const name       = event?.senderName || event?.chatName || null;
       const messageId  = event?.messageId || event?.zaapId || null;
+      const vendorId   = req.query.vendor_id || null;
       if (!fromMe && rawPhone && text) {
         const { data: saved } = await supabase.from('whatsapp_messages').insert({
           phone:        rawPhone,
@@ -339,6 +339,7 @@ app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req,
           message:      text,
           from_me:      false,
           message_id:   messageId,
+          vendor_id:    vendorId,
         }).select().single();
         if (saved) broadcastMessage(saved);
       }
@@ -388,10 +389,10 @@ app.get('/api/messages/stream', (req, res) => {
 // ============================================
 app.get('/api/messages', auth, async (req, res) => {
   try {
-    // Última mensagem por número de telefone
     const { data, error } = await supabase
       .from('whatsapp_messages')
       .select('id, phone, contact_name, message, from_me, created_at')
+      .eq('vendor_id', req.user.id)
       .order('created_at', { ascending: false })
       .limit(500);
     if (error) return sbErr(error, res);
@@ -427,6 +428,7 @@ app.get('/api/messages/:phone', auth, async (req, res) => {
     const { data, error } = await supabase
       .from('whatsapp_messages')
       .select('id, phone, contact_name, message, from_me, created_at')
+      .eq('vendor_id', req.user.id)
       .eq('phone', phone)
       .order('created_at', { ascending: true })
       .limit(200);
@@ -446,11 +448,22 @@ app.post('/api/messages/:phone/reply', auth, async (req, res) => {
     const { message } = req.body;
     if (!message?.trim()) return res.status(400).json({ error: 'Mensagem não pode ser vazia' });
 
-    await sendWhatsApp(phone, message.trim());
+    // Buscar credenciais Z-API do vendor para envio
+    const { data: vendorCreds } = await supabase
+      .from('vendors')
+      .select('zapi_instance_id, zapi_token, zapi_client_token')
+      .eq('id', req.user.id)
+      .single();
+
+    await sendWhatsApp(phone, message.trim(), {
+      instanceId:  vendorCreds?.zapi_instance_id,
+      token:       vendorCreds?.zapi_token,
+      clientToken: vendorCreds?.zapi_client_token,
+    });
 
     const { data, error } = await supabase
       .from('whatsapp_messages')
-      .insert({ phone, message: message.trim(), from_me: true })
+      .insert({ phone, message: message.trim(), from_me: true, vendor_id: req.user.id })
       .select()
       .single();
     if (error) return sbErr(error, res);
@@ -941,14 +954,17 @@ app.post('/api/orders', async (req, res) => {
 
     if (error) return sbErr(error, res);
 
-    // Notificação WhatsApp automática ao cliente
+    // Notificação WhatsApp automática ao cliente (usando credenciais do vendor)
     if (customer.phone) {
       const trackingUrl = `${FRONTEND_URL}?loja=${vendor.slug}&pedido=${order.id}`;
       const isPix = String(customer_notes || '').toUpperCase().includes('PIX');
+      const { data: vCreds } = await supabase
+        .from('vendors').select('zapi_instance_id, zapi_token, zapi_client_token').eq('id', vendor.id).single();
       sendWhatsApp(customer.phone, waMsgNovoPedido(
         customer.name, vendor.name, order.order_number, order.total,
         delivery_type, trackingUrl, isPix ? vendor.pix_key : null
-      )).catch(() => {});
+      ), { instanceId: vCreds?.zapi_instance_id, token: vCreds?.zapi_token, clientToken: vCreds?.zapi_client_token })
+        .catch(() => {});
     }
 
     res.status(201).json({
@@ -1078,7 +1094,9 @@ app.put('/api/orders/:id', [auth, planCheck], async (req, res) => {
     // Notificação WhatsApp ao cliente na mudança de status
     if (data.customer_phone && WA_STATUS_MSG[status]) {
       try {
-        const { data: v } = await supabase.from('vendors').select('slug').eq('id', req.user.id).single();
+        const { data: v } = await supabase.from('vendors')
+          .select('slug, zapi_instance_id, zapi_token, zapi_client_token')
+          .eq('id', req.user.id).single();
         const trackingUrl = v?.slug ? `${FRONTEND_URL}?loja=${v.slug}&pedido=${data.id}` : FRONTEND_URL;
         const msgFn = WA_STATUS_MSG[status];
         const msg   = status === 'pronto'
@@ -1086,7 +1104,9 @@ app.put('/api/orders/:id', [auth, planCheck], async (req, res) => {
           : status === 'entregue' || status === 'cancelado'
             ? msgFn(data.customer_name)
             : msgFn(data.customer_name, trackingUrl);
-        sendWhatsApp(data.customer_phone, msg).catch(() => {});
+        sendWhatsApp(data.customer_phone, msg, {
+          instanceId: v?.zapi_instance_id, token: v?.zapi_token, clientToken: v?.zapi_client_token,
+        }).catch(() => {});
       } catch {}
     }
 
@@ -1277,7 +1297,9 @@ app.patch('/api/orders/:id/commission-paid', [auth, planCheck], async (req, res)
 app.get('/api/vendors/settings', auth, async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('vendors').select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url').eq('id', req.user.id).single();
+      .from('vendors')
+      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token')
+      .eq('id', req.user.id).single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
@@ -1287,7 +1309,7 @@ app.get('/api/vendors/settings', auth, async (req, res) => {
 
 app.patch('/api/vendors/settings', auth, async (req, res) => {
   try {
-    const allowed = ['deliveries_enabled', 'slug', 'delivery_fee', 'pix_key'];
+    const allowed = ['deliveries_enabled', 'slug', 'delivery_fee', 'pix_key', 'zapi_instance_id', 'zapi_token', 'zapi_client_token'];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
 
     if (updates.slug !== undefined) {
@@ -1309,7 +1331,8 @@ app.patch('/api/vendors/settings', auth, async (req, res) => {
     }
 
     const { data, error } = await supabase
-      .from('vendors').update(updates).eq('id', req.user.id).select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url').single();
+      .from('vendors').update(updates).eq('id', req.user.id)
+      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token').single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
