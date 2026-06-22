@@ -8,8 +8,9 @@ const PLAN_ERROR_CODES = new Set(['TRIAL_EXPIRED', 'PLAN_INACTIVE', 'PLAN_EXPIRE
 // Token em memória — mais confiável que cookie cross-origin em alguns ambientes
 let authToken = null;
 
-// Slug da loja lido uma vez da URL ao carregar a página
-let vendorSlug = new URLSearchParams(window.location.search).get('loja') || null;
+// Slug da loja e ID de rastreamento lidos da URL ao carregar a página
+let vendorSlug   = new URLSearchParams(window.location.search).get('loja')   || null;
+let initTrackId  = new URLSearchParams(window.location.search).get('pedido') || null;
 
 const apiFetch = async (path, options = {}) => {
   const { headers: extraHeaders, ...rest } = options;
@@ -48,10 +49,14 @@ const STATUS_COLORS = {
   cancelado:   { bg: '#ffebee', color: '#c62828' },
 };
 
-const PAYMENT_OPTIONS = [
+const PAYMENT_OPTIONS_ALL = [
   { value: 'PIX',      label: '📱 PIX',              desc: 'Chave enviada após o pedido' },
-  { value: 'Dinheiro', label: '💵 Dinheiro',          desc: 'Na retirada ou entrega' },
-  { value: 'Cartão',   label: '💳 Cartão na entrega', desc: 'Máquina na entrega' },
+  { value: 'Dinheiro', label: '💵 Dinheiro',          desc: 'Na retirada no local' },
+  { value: 'Cartão',   label: '💳 Cartão',            desc: 'Máquina na entrega ou retirada' },
+];
+const PAYMENT_OPTIONS_ENTREGA = [
+  { value: 'PIX',    label: '📱 PIX',    desc: 'Chave enviada após o pedido' },
+  { value: 'Cartão', label: '💳 Cartão', desc: 'Máquina na entrega' },
 ];
 
 const Alert = ({ msg, type }) => {
@@ -104,7 +109,7 @@ const Select = ({ label, id, children, ...props }) => (
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [screen, setScreen]           = useState(vendorSlug ? 'menu' : 'login');
+  const [screen, setScreen]           = useState(initTrackId ? 'order-tracking' : (vendorSlug ? 'menu' : 'login'));
   const [storeInfo, setStoreInfo]     = useState(null);
   const [user, setUser]               = useState(null);
   const [sessionLoaded, setSessionLoaded] = useState(false);
@@ -121,6 +126,8 @@ export default function App() {
   const [loading, setLoading]         = useState(false);
   const [alert, setAlert]             = useState({ msg: '', type: '' });
   const [lastOrder, setLastOrder]     = useState(null);
+  const [trackingOrderId, setTrackingOrderId] = useState(initTrackId);
+  const [trackedOrder, setTrackedOrder]       = useState(null);
 
   const [customerName, setCustomerName]       = useState('');
   const [customerPhone, setCustomerPhone]     = useState('');
@@ -139,6 +146,12 @@ export default function App() {
   const [showDelivererForm, setShowDelivererForm] = useState(false);
   const [editingDel, setEditingDel] = useState(null);
   const [delivererForm, setDelivererForm] = useState({ name: '', phone: '', cpf: '', vehicle: '', commission_rate: '10' });
+
+  // estados edição de taxa/valor do pedido
+  const [editingFeeId, setEditingFeeId]     = useState(null);
+  const [editingFeeVal, setEditingFeeVal]   = useState('');
+  const [editingDesconto, setEditingDesconto] = useState('');
+  const [editingFeeNote, setEditingFeeNote] = useState('');
 
   const showAlert = (msg, type = 'error') => {
     setAlert({ msg, type });
@@ -194,6 +207,19 @@ export default function App() {
     const interval = setInterval(() => { fetchOrders(); fetchDashboard(); }, 30000);
     return () => clearInterval(interval);
   }, [user, screen]);
+
+  useEffect(() => {
+    if (screen !== 'order-tracking' || !trackingOrderId) return;
+    const fetchTracking = async () => {
+      try {
+        const data = await apiFetch(`/orders/${trackingOrderId}/track`);
+        setTrackedOrder(data);
+      } catch { setTrackedOrder(null); }
+    };
+    fetchTracking();
+    const interval = setInterval(fetchTracking, 30000);
+    return () => clearInterval(interval);
+  }, [screen, trackingOrderId]);
 
   const fetchProducts = async () => {
     if (!vendorSlug) return;
@@ -347,7 +373,13 @@ export default function App() {
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
         <div style={{ background: '#fff', padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
           <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ margin: 0, fontSize: '22px', color: '#667eea' }}>🫐 {storeInfo?.name || 'Açaí Shop'}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              {storeInfo?.logo_url
+                ? <img src={storeInfo.logo_url} alt="" style={{ height: '40px', width: '40px', objectFit: 'cover', borderRadius: '8px' }} />
+                : <span style={{ fontSize: '28px' }}>🫐</span>
+              }
+              <h1 style={{ margin: 0, fontSize: '22px', color: '#667eea' }}>{storeInfo?.name || 'Açaí Shop'}</h1>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {user?.role === 'vendor' && (
                 <>
@@ -481,6 +513,8 @@ export default function App() {
   if (screen === 'checkout') {
     const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
     const deliveryFee = storeInfo?.delivery_fee != null ? Number(storeInfo.delivery_fee) : 5.00;
+    const paymentOptions = checkoutDeliveryType === 'entrega' ? PAYMENT_OPTIONS_ENTREGA : PAYMENT_OPTIONS_ALL;
+    if (checkoutDeliveryType === 'entrega' && paymentMethod === 'Dinheiro') setPaymentMethod('PIX');
     const handleCheckout = async () => {
       if (!checkoutDeliveryType) { showAlert('Escolha retirada ou entrega'); return; }
       if (!customerName.trim()) { showAlert('Informe seu nome'); return; }
@@ -528,7 +562,7 @@ export default function App() {
             <Input label="Email (opcional)" type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="joao@email.com" />
             <h3 style={{ color: '#555', fontSize: '15px', margin: '20px 0 12px' }}>Como vai pagar?</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
-              {PAYMENT_OPTIONS.map(opt => (
+              {paymentOptions.map(opt => (
                 <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '8px', cursor: 'pointer', border: paymentMethod === opt.value ? '2px solid #667eea' : '1px solid #ddd', background: paymentMethod === opt.value ? '#f0e7ff' : '#fafafa' }}>
                   <input type="radio" name="payment" value={opt.value} checked={paymentMethod === opt.value} onChange={() => setPaymentMethod(opt.value)} style={{ accentColor: '#667eea' }} />
                   <div>
@@ -588,29 +622,134 @@ export default function App() {
   // ─── CONFIRMAÇÃO ─────────────────────────────────────────────────────────────
   if (screen === 'confirmation') {
     const isPix = paymentMethod === 'PIX';
+    const pixKey = storeInfo?.pix_key;
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-        <div style={{ background: '#fff', borderRadius: '16px', padding: '48px 40px', maxWidth: '480px', width: '100%', textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.1)' }}>
-          <div style={{ fontSize: '64px', marginBottom: '16px' }}>🎉</div>
+        <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', maxWidth: '480px', width: '100%', textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.1)' }}>
+          <Alert msg={alert.msg} type={alert.type} />
+          {storeInfo?.logo_url
+            ? <img src={storeInfo.logo_url} alt="" style={{ height: '56px', width: '56px', objectFit: 'cover', borderRadius: '12px', marginBottom: '12px' }} />
+            : <div style={{ fontSize: '56px', marginBottom: '12px' }}>🎉</div>
+          }
           <h2 style={{ color: '#2ecc71', marginBottom: '8px' }}>Pedido recebido!</h2>
           {lastOrder?.order_number && (
             <div style={{ background: '#f0e7ff', padding: '10px 16px', borderRadius: '8px', marginBottom: '16px', display: 'inline-block' }}>
               <span style={{ fontWeight: 'bold', color: '#667eea', fontSize: '18px' }}>{lastOrder.order_number}</span>
             </div>
           )}
-          <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: '10px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
+          <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: '10px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
             <div style={{ fontWeight: 'bold', color: '#f57f17', marginBottom: '4px' }}>⏳ Aguardando confirmação de pagamento</div>
             <div style={{ fontSize: '13px', color: '#555' }}>
               {isPix ? 'Assim que recebermos o PIX, confirmaremos seu pedido pelo WhatsApp e iniciaremos o preparo.' : 'Seu pedido será confirmado após a verificação do pagamento.'}
             </div>
           </div>
           {isPix && (
-            <div style={{ background: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: '10px', padding: '16px', marginBottom: '20px', textAlign: 'left' }}>
-              <div style={{ fontWeight: 'bold', color: '#2e7d32', marginBottom: '4px' }}>📱 Pagamento via PIX</div>
-              <div style={{ fontSize: '13px', color: '#555' }}>Enviaremos a chave PIX pelo WhatsApp em instantes.</div>
+            <div style={{ background: '#e8f5e9', border: '1px solid #a5d6a7', borderRadius: '10px', padding: '16px', marginBottom: '16px', textAlign: 'left' }}>
+              <div style={{ fontWeight: 'bold', color: '#2e7d32', marginBottom: '8px' }}>📱 Pagamento via PIX</div>
+              {pixKey ? (
+                <>
+                  <div style={{ fontSize: '13px', color: '#555', marginBottom: '8px' }}>Pague para a chave abaixo e envie o comprovante pelo WhatsApp:</div>
+                  <div style={{ background: '#fff', borderRadius: '8px', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                    <span style={{ fontWeight: 'bold', fontSize: '15px', color: '#333', wordBreak: 'break-all' }}>{pixKey}</span>
+                    <button onClick={() => navigator.clipboard.writeText(pixKey).then(() => showAlert('Chave PIX copiada!', 'success'))} style={{ background: '#2ecc71', color: '#fff', border: 'none', padding: '7px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', flexShrink: 0 }}>📋 Copiar</button>
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#2e7d32', fontWeight: 'bold' }}>Valor: R$ {lastOrder?.total ? Number(lastOrder.total).toFixed(2) : '—'}</div>
+                </>
+              ) : (
+                <div style={{ fontSize: '13px', color: '#555' }}>Enviaremos a chave PIX pelo WhatsApp em instantes.</div>
+              )}
             </div>
           )}
-          <Btn onClick={() => setScreen('menu')} style={{ width: '100%' }}>Fazer novo pedido</Btn>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {lastOrder?.id && (
+              <Btn variant="secondary" onClick={() => { setTrackingOrderId(lastOrder.id); setScreen('order-tracking'); }} style={{ width: '100%' }}>
+                🔍 Acompanhar meu pedido
+              </Btn>
+            )}
+            <Btn onClick={() => setScreen('menu')} style={{ width: '100%' }}>Fazer novo pedido</Btn>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── RASTREAMENTO DE PEDIDO (público) ────────────────────────────────────────
+  if (screen === 'order-tracking') {
+    const STATUS_STEPS = [
+      { key: 'aguardando_pagamento', label: 'Aguardando Pagamento', icon: '⏳' },
+      { key: 'confirmado',           label: 'Confirmado',           icon: '✓'  },
+      { key: 'em_preparo',           label: 'Em Preparo',           icon: '👨‍🍳' },
+      { key: 'pronto',               label: 'Pronto',               icon: '✅' },
+      { key: 'em_entrega',           label: 'Em Entrega',           icon: '🚚' },
+      { key: 'entregue',             label: 'Entregue',             icon: '📦' },
+    ];
+    const currentStepIdx = trackedOrder ? STATUS_STEPS.findIndex(s => s.key === trackedOrder?.status) : -1;
+    const isCanceled = trackedOrder?.status === 'cancelado';
+    return (
+      <div style={{ background: '#f5f5f5', minHeight: '100vh', padding: '20px' }}>
+        <div style={{ maxWidth: '560px', margin: '0 auto' }}>
+          <button onClick={() => setScreen(vendorSlug ? 'menu' : 'login')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', marginBottom: '16px', fontWeight: 'bold', fontSize: '15px' }}>← Voltar ao cardápio</button>
+          <div style={{ background: '#fff', borderRadius: '16px', padding: '28px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+            {storeInfo?.logo_url && (
+              <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                <img src={storeInfo.logo_url} alt="" style={{ height: '48px', width: '48px', objectFit: 'cover', borderRadius: '10px' }} />
+              </div>
+            )}
+            <h2 style={{ marginTop: 0, marginBottom: '4px' }}>🔍 Acompanhar Pedido</h2>
+            {!trackedOrder ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>⏳</div>
+                <p>Carregando dados do pedido...</p>
+              </div>
+            ) : isCanceled ? (
+              <div style={{ textAlign: 'center', padding: '32px' }}>
+                <div style={{ fontSize: '48px', marginBottom: '12px' }}>❌</div>
+                <h3 style={{ color: '#c62828', margin: '0 0 8px' }}>Pedido Cancelado</h3>
+                <p style={{ color: '#999', fontSize: '14px' }}>Este pedido foi cancelado pelo estabelecimento.</p>
+              </div>
+            ) : (
+              <>
+                {trackedOrder.order_number && (
+                  <div style={{ background: '#f0e7ff', padding: '8px 14px', borderRadius: '8px', marginBottom: '20px', display: 'inline-block' }}>
+                    <span style={{ fontWeight: 'bold', color: '#667eea' }}>{trackedOrder.order_number}</span>
+                  </div>
+                )}
+                <div style={{ marginBottom: '24px' }}>
+                  {STATUS_STEPS.map((step, idx) => {
+                    const done   = idx <= currentStepIdx;
+                    const active = idx === currentStepIdx;
+                    return (
+                      <div key={step.key} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', fontWeight: 'bold', boxSizing: 'border-box', background: active ? '#667eea' : done ? '#e8f5e9' : '#f5f5f5', color: active ? '#fff' : done ? '#2e7d32' : '#ccc', border: active ? '3px solid #667eea' : 'none' }}>
+                          {active ? step.icon : done ? '✓' : step.icon}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: active ? 'bold' : 'normal', color: active ? '#667eea' : done ? '#2e7d32' : '#ccc', fontSize: '15px' }}>{step.label}</div>
+                          {active && <div style={{ fontSize: '12px', color: '#999' }}>Status atual</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ background: '#f9f9f9', borderRadius: '10px', padding: '16px' }}>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>
+                    <strong>Tipo:</strong> {trackedOrder.delivery_type === 'entrega' ? '🚚 Entrega' : '🕐 Retirada no local'}
+                  </div>
+                  {(trackedOrder.items || []).map((item, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#666', marginBottom: '3px' }}>
+                      <span>{item.emoji || '🫐'} {item.name} × {item.quantity || 1}</span>
+                      <span>R$ {(item.price * (item.quantity || 1)).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div style={{ borderTop: '1px solid #eee', marginTop: '8px', paddingTop: '8px', fontWeight: 'bold', color: '#667eea', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Total</span>
+                    <span>R$ {Number(trackedOrder.total).toFixed(2)}</span>
+                  </div>
+                </div>
+                <div style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', marginTop: '14px' }}>Atualizado automaticamente a cada 30 segundos</div>
+              </>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -843,6 +982,21 @@ export default function App() {
       } catch (err) { showAlert(err.message || 'Erro ao confirmar pagamento'); }
     };
 
+    const updateOrderFee = async (orderId) => {
+      const fee      = parseFloat(String(editingFeeVal).replace(',', '.'));
+      const desconto = parseFloat(String(editingDesconto).replace(',', '.')) || 0;
+      if (isNaN(fee) || fee < 0) { showAlert('Taxa inválida'); return; }
+      try {
+        await apiFetch(`/orders/${orderId}/fee`, {
+          method: 'PATCH',
+          body: JSON.stringify({ delivery_fee: fee, desconto, note: editingFeeNote.trim() || undefined }),
+        });
+        showAlert('Valor atualizado!', 'success');
+        setEditingFeeId(null); setEditingFeeVal(''); setEditingDesconto(''); setEditingFeeNote('');
+        fetchOrders(); fetchDashboard();
+      } catch (err) { showAlert(err.message || 'Erro ao atualizar valor'); }
+    };
+
     const updateStatus = async (orderId, newStatus) => {
       try {
         await apiFetch(`/orders/${orderId}`, {
@@ -940,7 +1094,47 @@ export default function App() {
                         <span>R$ {(item.price * (item.quantity || 1)).toFixed(2)}</span>
                       </div>
                     ))}
+                    <div style={{ borderTop: '1px solid #eee', marginTop: '6px', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#999' }}><span>Subtotal</span><span>R$ {Number(order.subtotal || 0).toFixed(2)}</span></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#999' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          Taxa de entrega
+                          {!['entregue','cancelado'].includes(order.status) && (
+                            <button onClick={() => { setEditingFeeId(order.id); setEditingFeeVal(Number(order.delivery_fee).toFixed(2)); setEditingDesconto(''); setEditingFeeNote(''); }} style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✏️</button>
+                          )}
+                        </span>
+                        <span>R$ {Number(order.delivery_fee || 0).toFixed(2)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: '#667eea', fontSize: '14px' }}><span>Total</span><span>R$ {Number(order.total).toFixed(2)}</span></div>
+                    </div>
                   </div>
+
+                  {editingFeeId === order.id && (
+                    <div style={{ background: '#f0f4ff', borderRadius: '10px', padding: '14px 16px', marginBottom: '12px' }}>
+                      <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '10px', color: '#333' }}>✏️ Ajustar valor do pedido</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px', fontWeight: '600' }}>Taxa de entrega (R$)</label>
+                          <input type="number" step="0.01" min="0" value={editingFeeVal} onChange={e => setEditingFeeVal(e.target.value)} style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px', fontWeight: '600' }}>Desconto (R$)</label>
+                          <input type="number" step="0.01" min="0" value={editingDesconto} onChange={e => setEditingDesconto(e.target.value)} placeholder="0.00" style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }} />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: '10px' }}>
+                        <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px', fontWeight: '600' }}>Observação (enviada ao cliente)</label>
+                        <input type="text" value={editingFeeNote} onChange={e => setEditingFeeNote(e.target.value)} placeholder="Ex: desconto de fidelidade" style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }} />
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#667eea', fontWeight: 'bold', marginBottom: '10px' }}>
+                        Novo total: R$ {(Math.max(0, Number(order.subtotal || 0) + (parseFloat(String(editingFeeVal).replace(',','.')) || 0) - (parseFloat(String(editingDesconto).replace(',','.')) || 0))).toFixed(2)}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => updateOrderFee(order.id)} style={{ background: '#667eea', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>✓ Salvar</button>
+                        <button onClick={() => setEditingFeeId(null)} style={{ background: '#f5f5f5', color: '#555', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancelar</button>
+                      </div>
+                    </div>
+                  )}
 
                   {order.status === 'aguardando_pagamento' ? (
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1185,6 +1379,65 @@ export default function App() {
         <AdminHeader active="deliverers-admin" />
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: '28px 20px' }}>
           <Alert msg={alert.msg} type={alert.type} />
+
+          {/* Logo da Loja */}
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '12px' }}>🖼️ Logo da Loja</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+              {vendorSettings?.logo_url
+                ? <img src={vendorSettings.logo_url} alt="Logo" style={{ width: '72px', height: '72px', objectFit: 'cover', borderRadius: '12px', border: '1px solid #eee' }} />
+                : <div style={{ width: '72px', height: '72px', background: '#f0e7ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px' }}>🫐</div>
+              }
+              <div>
+                <div style={{ fontSize: '13px', color: '#999', marginBottom: '8px' }}>
+                  {vendorSettings?.logo_url ? 'Logo exibida no topo do cardápio' : 'Sem logo — exibindo emoji padrão'}
+                </div>
+                <input type="file" id="logo-upload" accept="image/*" style={{ display: 'none' }} onChange={async (e) => {
+                  const file = e.target.files[0]; if (!file) return;
+                  if (file.size > 5 * 1024 * 1024) { showAlert('Imagem muito grande (máx. 5MB)'); e.target.value = ''; return; }
+                  setLoading(true);
+                  try {
+                    const headers = { 'Content-Type': file.type };
+                    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+                    const res = await fetch(`${API_URL}/vendors/logo`, { method: 'PUT', credentials: 'include', headers, body: file });
+                    const data = await res.json().catch(() => ({ error: 'Erro no upload' }));
+                    if (!res.ok) throw new Error(data.error || 'Erro no upload');
+                    setVendorSettings(prev => ({ ...prev, logo_url: data.logo_url }));
+                    showAlert('Logo atualizada!', 'success');
+                  } catch (err) { showAlert('Erro: ' + err.message); }
+                  finally { setLoading(false); e.target.value = ''; }
+                }} />
+                <label htmlFor="logo-upload" style={{ background: '#667eea', color: '#fff', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', display: 'inline-block' }}>
+                  {loading ? 'Enviando...' : vendorSettings?.logo_url ? '🔄 Trocar Logo' : '📤 Enviar Logo'}
+                </label>
+              </div>
+            </div>
+            <div style={{ fontSize: '12px', color: '#bbb', marginTop: '10px' }}>JPG, PNG ou WEBP · Máx. 5MB · Recomendado: formato quadrado (200×200px)</div>
+          </div>
+
+          {/* Chave PIX */}
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', marginBottom: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 'bold', fontSize: '16px' }}>📱 Chave PIX</div>
+              <div style={{ fontSize: '13px', color: '#999', marginTop: '3px' }}>
+                {vendorSettings?.pix_key
+                  ? <><strong style={{ color: '#333' }}>{vendorSettings.pix_key}</strong> — exibida automaticamente ao cliente</>
+                  : 'Não configurada — chave será enviada manualmente pelo WhatsApp'}
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                const input = window.prompt('Sua chave PIX (CPF, email, telefone ou chave aleatória):', vendorSettings?.pix_key || '');
+                if (input === null) return;
+                try {
+                  const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ pix_key: input.trim() || null }) });
+                  setVendorSettings(prev => ({ ...prev, ...data }));
+                  showAlert('Chave PIX salva!', 'success');
+                } catch (err) { showAlert(err.message || 'Erro ao salvar chave PIX'); }
+              }}
+              style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', flexShrink: 0, marginLeft: '12px' }}
+            >{vendorSettings?.pix_key ? '✏️ Alterar' : '+ Configurar'}</button>
+          </div>
 
           {/* Link da Loja */}
           <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>

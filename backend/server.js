@@ -8,6 +8,7 @@ const jwt          = require('jsonwebtoken');
 const bcrypt       = require('bcryptjs');
 const dotenv       = require('dotenv');
 const cookieParser = require('cookie-parser');
+const https        = require('https');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
 if (!globalThis.WebSocket) globalThis.WebSocket = ws;
@@ -65,6 +66,64 @@ app.use((req, res, next) => {
   else if (d.count++ > max) return res.status(429).json({ error: 'Muitas requisições. Aguarde 15 minutos.' });
   next();
 });
+
+// ── WhatsApp via Z-API (opcional — configura no .env) ─────────────────────────
+async function sendWhatsApp(phone, message) {
+  let instanceId    = process.env.ZAPI_INSTANCE_ID || '';
+  let token         = process.env.ZAPI_TOKEN || '';
+  const clientToken = process.env.ZAPI_CLIENT_TOKEN || '';
+
+  // Suporte ao formato URL completa: extrai instance ID e token automaticamente
+  if (instanceId.startsWith('http')) {
+    const m = instanceId.match(/instances\/([^/]+)\/token\/([^/]+)/);
+    if (m) { instanceId = m[1]; token = m[2]; }
+  }
+
+  if (!instanceId || !token || !phone) return;
+  try {
+    let p = String(phone).replace(/\D/g, '');
+    if (!p.startsWith('55')) p = '55' + p;
+    const body = JSON.stringify({ phone: p, message });
+    await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: 'api.z-api.io',
+        path:     `/instances/${instanceId}/token/${token}/send-text`,
+        method:   'POST',
+        headers:  { 'Content-Type': 'application/json', 'Client-Token': clientToken, 'Content-Length': Buffer.byteLength(body) },
+      }, (res) => {
+        let raw = '';
+        res.on('data', d => raw += d);
+        res.on('end', () => {
+          if (res.statusCode >= 400) console.error('WhatsApp API error:', res.statusCode, raw);
+          resolve();
+        });
+      });
+      req.on('error', reject);
+      req.write(body); req.end();
+    });
+  } catch (err) { console.error('WhatsApp notification error:', err.message); }
+}
+
+function waMsgNovoPedido(name, storeName, orderNum, total, deliveryType, trackingUrl, pixKey) {
+  const delivIcon = deliveryType === 'entrega' ? '🚚 Entrega a domicílio' : '🕐 Retirada no local';
+  let msg = `🫐 Olá, *${name}*! Seu pedido no *${storeName}* foi recebido! 🎉\n\n📦 Pedido: *${orderNum || '#'}*\n💰 Total: R$ ${Number(total).toFixed(2)}\n${delivIcon}`;
+  if (pixKey) {
+    msg += `\n\n━━━━━━━━━━━━━━━━━\n📱 *PAGUE VIA PIX*\nChave: *${pixKey}*\nValor: *R$ ${Number(total).toFixed(2)}*\nEnvie o comprovante após pagar.\n━━━━━━━━━━━━━━━━━`;
+  }
+  msg += `\n\n🔍 Acompanhe seu pedido:\n${trackingUrl}`;
+  return msg;
+}
+
+const WA_STATUS_MSG = {
+  confirmado:  (n, url) => `✅ *${n}*, seu pagamento foi confirmado!\nSeu pedido está sendo preparado. 👨‍🍳\nAcompanhe: ${url}`,
+  em_preparo:  (n, url) => `👨‍🍳 Estamos preparando seu açaí, *${n}*!\nAcompanhe: ${url}`,
+  pronto:      (n, url, type) => type === 'entrega'
+    ? `✅ Pedido pronto, *${n}*! O entregador está a caminho. 🚚\nAcompanhe: ${url}`
+    : `✅ Pedido pronto, *${n}*! Pode vir buscar. 🏃\nAcompanhe: ${url}`,
+  em_entrega:  (n, url) => `🚚 Seu pedido saiu para entrega, *${n}*!\nAcompanhe: ${url}`,
+  entregue:    (n)      => `📦 Pedido entregue, *${n}*!\nObrigado pela preferência! 🫐❤️`,
+  cancelado:   (n)      => `❌ *${n}*, seu pedido foi cancelado.\nEntre em contato pelo WhatsApp se tiver dúvidas.`,
+};
 
 // ── Helper: erro do Supabase ───────────────────
 const sbErr = (error, res) => {
@@ -228,7 +287,7 @@ app.get('/api/store/:slug', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('vendors')
-      .select('name, slug, deliveries_enabled, delivery_fee')
+      .select('name, slug, deliveries_enabled, delivery_fee, pix_key, logo_url')
       .eq('slug', req.params.slug)
       .eq('status', 'active')
       .single();
@@ -626,7 +685,7 @@ app.post('/api/orders', async (req, res) => {
 
     const { data: vendor, error: vErr } = await supabase
       .from('vendors')
-      .select('id, deliveries_enabled, delivery_fee')
+      .select('id, slug, name, deliveries_enabled, delivery_fee, pix_key')
       .eq('slug', vendor_slug)
       .eq('status', 'active')
       .single();
@@ -695,6 +754,16 @@ app.post('/api/orders', async (req, res) => {
 
     if (error) return sbErr(error, res);
 
+    // Notificação WhatsApp automática ao cliente
+    if (customer.phone) {
+      const trackingUrl = `${FRONTEND_URL}?loja=${vendor.slug}&pedido=${order.id}`;
+      const isPix = String(customer_notes || '').toUpperCase().includes('PIX');
+      sendWhatsApp(customer.phone, waMsgNovoPedido(
+        customer.name, vendor.name, order.order_number, order.total,
+        delivery_type, trackingUrl, isPix ? vendor.pix_key : null
+      )).catch(() => {});
+    }
+
     res.status(201).json({
       message: 'Pedido criado com sucesso',
       order: {
@@ -704,6 +773,23 @@ app.post('/api/orders', async (req, res) => {
     });
   } catch {
     res.status(500).json({ error: 'Erro interno ao criar pedido' });
+  }
+});
+
+// ============================================
+// PEDIDOS: RASTREAR (público — apenas por ID)
+// ============================================
+app.get('/api/orders/:id/track', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id, order_number, status, items, subtotal, delivery_fee, total, delivery_type, created_at, customer_name')
+      .eq('id', req.params.id)
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Pedido não encontrado' });
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
   }
 });
 
@@ -802,9 +888,71 @@ app.put('/api/orders/:id', [auth, planCheck], async (req, res) => {
     if (error) return sbErr(error, res);
     if (!data)  return res.status(404).json({ error: 'Pedido não encontrado' });
 
+    // Notificação WhatsApp ao cliente na mudança de status
+    if (data.customer_phone && WA_STATUS_MSG[status]) {
+      try {
+        const { data: v } = await supabase.from('vendors').select('slug').eq('id', req.user.id).single();
+        const trackingUrl = v?.slug ? `${FRONTEND_URL}?loja=${v.slug}&pedido=${data.id}` : FRONTEND_URL;
+        const msgFn = WA_STATUS_MSG[status];
+        const msg   = status === 'pronto'
+          ? msgFn(data.customer_name, trackingUrl, data.delivery_type)
+          : status === 'entregue' || status === 'cancelado'
+            ? msgFn(data.customer_name)
+            : msgFn(data.customer_name, trackingUrl);
+        sendWhatsApp(data.customer_phone, msg).catch(() => {});
+      } catch {}
+    }
+
     res.json({ message: 'Pedido atualizado', order: normalizeOrder(data) });
   } catch {
     res.status(500).json({ error: 'Erro interno ao atualizar pedido' });
+  }
+});
+
+// ============================================
+// PEDIDOS: ALTERAR TAXA / VALOR (vendor)
+// ============================================
+app.patch('/api/orders/:id/fee', [auth, planCheck], async (req, res) => {
+  try {
+    const { delivery_fee, desconto, note } = req.body;
+
+    const { data: current, error: findErr } = await supabase
+      .from('orders')
+      .select('subtotal, delivery_fee, customer_phone, customer_name')
+      .eq('id', req.params.id)
+      .eq('vendor_id', req.user.id)
+      .single();
+    if (findErr || !current) return res.status(404).json({ error: 'Pedido não encontrado' });
+
+    const newFee      = delivery_fee !== undefined ? Number(delivery_fee) : Number(current.delivery_fee);
+    const newDesconto = desconto     !== undefined ? Math.max(0, Number(desconto)) : 0;
+    if (isNaN(newFee) || newFee < 0) return res.status(400).json({ error: 'Taxa inválida' });
+
+    const newTotal = Math.max(0, Number(current.subtotal) + newFee - newDesconto);
+
+    const updates = { delivery_fee: newFee, total: newTotal };
+    if (newDesconto > 0) updates.desconto = newDesconto;
+    if (note)            updates.vendor_notes = note;
+
+    const { data, error } = await supabase
+      .from('orders')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('vendor_id', req.user.id)
+      .select()
+      .single();
+
+    if (error) return sbErr(error, res);
+
+    // Notifica cliente se o valor mudou
+    if (current.customer_phone) {
+      const msg = `ℹ️ *${current.customer_name}*, o valor do seu pedido foi atualizado.\n💰 Novo total: *R$ ${newTotal.toFixed(2)}*${newDesconto > 0 ? `\n🎁 Desconto aplicado: R$ ${newDesconto.toFixed(2)}` : ''}${note ? `\nObs: ${note}` : ''}`;
+      sendWhatsApp(current.customer_phone, msg).catch(() => {});
+    }
+
+    res.json({ message: 'Valor atualizado', order: normalizeOrder(data) });
+  } catch {
+    res.status(500).json({ error: 'Erro interno ao atualizar valor' });
   }
 });
 
@@ -942,7 +1090,7 @@ app.patch('/api/orders/:id/commission-paid', [auth, planCheck], async (req, res)
 app.get('/api/vendors/settings', auth, async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('vendors').select('deliveries_enabled, slug, name, delivery_fee').eq('id', req.user.id).single();
+      .from('vendors').select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url').eq('id', req.user.id).single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
@@ -952,7 +1100,7 @@ app.get('/api/vendors/settings', auth, async (req, res) => {
 
 app.patch('/api/vendors/settings', auth, async (req, res) => {
   try {
-    const allowed = ['deliveries_enabled', 'slug', 'delivery_fee'];
+    const allowed = ['deliveries_enabled', 'slug', 'delivery_fee', 'pix_key'];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
 
     if (updates.slug !== undefined) {
@@ -969,8 +1117,12 @@ app.patch('/api/vendors/settings', auth, async (req, res) => {
       updates.delivery_fee = fee;
     }
 
+    if (updates.pix_key !== undefined) {
+      updates.pix_key = typeof updates.pix_key === 'string' ? updates.pix_key.trim() || null : null;
+    }
+
     const { data, error } = await supabase
-      .from('vendors').update(updates).eq('id', req.user.id).select('deliveries_enabled, slug, name, delivery_fee').single();
+      .from('vendors').update(updates).eq('id', req.user.id).select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url').single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
@@ -1101,6 +1253,38 @@ app.patch('/api/products/:id/image', [auth, planCheck], async (req, res) => {
     res.json({ message: 'Imagem atualizada', product: data });
   } catch {
     res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// LOGO DO VENDOR: upload direto via backend
+// ============================================
+app.put('/api/vendors/logo', [auth, express.raw({ type: '*/*', limit: '6mb' })], async (req, res) => {
+  try {
+    if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'Arquivo de imagem obrigatório' });
+
+    const content_type = (req.headers['content-type'] || 'image/jpeg').split(';')[0].trim();
+    const ext  = content_type.split('/')[1]?.split('+')[0] || 'jpg';
+    const path = `${req.user.id}/logo.${ext}`;
+
+    const { error: bErr } = await supabase.storage.getBucket('vendor-logos');
+    if (bErr) await supabase.storage.createBucket('vendor-logos', { public: true, fileSizeLimit: 5242880 });
+
+    const { error: uploadErr } = await supabase.storage.from('vendor-logos').upload(path, req.body, {
+      contentType: content_type,
+      upsert: true,
+    });
+    if (uploadErr) { console.error('Logo upload error:', uploadErr); return res.status(500).json({ error: 'Erro ao fazer upload da logo' }); }
+
+    const { data: { publicUrl } } = supabase.storage.from('vendor-logos').getPublicUrl(path);
+    const cacheBustedUrl = `${publicUrl}?t=${Date.now()}`;
+
+    const { error } = await supabase.from('vendors').update({ logo_url: cacheBustedUrl }).eq('id', req.user.id);
+    if (error) return sbErr(error, res);
+
+    res.json({ message: 'Logo atualizada', logo_url: cacheBustedUrl });
+  } catch {
+    res.status(500).json({ error: 'Erro interno ao fazer upload da logo' });
   }
 });
 
