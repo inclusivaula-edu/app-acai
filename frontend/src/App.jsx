@@ -122,10 +122,13 @@ export default function App() {
   const [alert, setAlert]             = useState({ msg: '', type: '' });
   const [lastOrder, setLastOrder]     = useState(null);
 
-  const [customerName, setCustomerName]   = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('PIX');
+  const [customerName, setCustomerName]       = useState('');
+  const [customerPhone, setCustomerPhone]     = useState('');
+  const [customerEmail, setCustomerEmail]     = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [customerComplement, setCustomerComplement] = useState('');
+  const [checkoutDeliveryType, setCheckoutDeliveryType] = useState('');
+  const [paymentMethod, setPaymentMethod]     = useState('PIX');
 
   // estados tela produtos-admin
   const [editingProduct, setEditingProduct] = useState(null);
@@ -267,7 +270,10 @@ export default function App() {
   // ─── LOGIN ───────────────────────────────────────────────────────────────────
   if (screen === 'login') {
     const handleLogin = async (e) => {
-      e.preventDefault(); setLoading(true);
+      e.preventDefault();
+      const emailVal = e.target.email.value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailVal)) { showAlert('Email inválido'); return; }
+      setLoading(true);
       try {
         const data = await apiFetch('/auth/login', {
           method: 'POST',
@@ -474,24 +480,37 @@ export default function App() {
   // ─── CHECKOUT ─────────────────────────────────────────────────────────────────
   if (screen === 'checkout') {
     const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-    const deliveryFee = 5.00;
-    const handleCheckout = async (deliveryType) => {
+    const deliveryFee = storeInfo?.delivery_fee != null ? Number(storeInfo.delivery_fee) : 5.00;
+    const handleCheckout = async () => {
+      if (!checkoutDeliveryType) { showAlert('Escolha retirada ou entrega'); return; }
       if (!customerName.trim()) { showAlert('Informe seu nome'); return; }
       if (!customerPhone.trim()) { showAlert('Informe seu WhatsApp'); return; }
+      if (checkoutDeliveryType === 'entrega' && !customerAddress.trim()) { showAlert('Informe o endereço para entrega'); return; }
       setLoading(true);
       try {
         const data = await apiFetch('/orders', {
           method: 'POST',
           body: JSON.stringify({
             items: cart.map(i => ({ product_id: i.id, quantity: i.quantity })),
-            customer: { name: customerName.trim(), email: customerEmail.trim(), phone: customerPhone.trim() },
-            delivery_type: deliveryType,
+            customer: {
+              name: customerName.trim(),
+              email: customerEmail.trim(),
+              phone: customerPhone.trim(),
+              address: checkoutDeliveryType === 'entrega' ? {
+                street: customerAddress.trim(),
+                number: '',
+                neighborhood: customerComplement.trim(),
+                city: '', state: '', zip_code: '',
+              } : undefined,
+            },
+            delivery_type: checkoutDeliveryType,
             customer_notes: `Pagamento: ${paymentMethod}`,
             vendor_slug: vendorSlug,
           }),
         });
         setLastOrder(data.order);
         setCart([]); setCustomerName(''); setCustomerPhone(''); setCustomerEmail('');
+        setCustomerAddress(''); setCustomerComplement(''); setCheckoutDeliveryType('');
         setScreen('confirmation');
       } catch (err) { showAlert(err.message || 'Erro ao criar pedido'); }
       finally { setLoading(false); }
@@ -532,15 +551,29 @@ export default function App() {
               </div>
             </div>
             <h3 style={{ color: '#555', fontSize: '15px', marginBottom: '12px' }}>Como quer receber?</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <button onClick={() => handleCheckout('retirada')} disabled={loading} style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', border: 'none', padding: '20px', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 'bold', opacity: loading ? 0.6 : 1, textAlign: 'center' }}>
-                🕐 Retirada<br /><span style={{ fontWeight: 'normal', fontSize: '13px', opacity: 0.9 }}>20–25 min • Grátis</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+              <button type="button" onClick={() => setCheckoutDeliveryType('retirada')} style={{ background: checkoutDeliveryType === 'retirada' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#f5f5f5', color: checkoutDeliveryType === 'retirada' ? '#fff' : '#555', border: checkoutDeliveryType === 'retirada' ? 'none' : '2px solid #ddd', padding: '16px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', textAlign: 'center' }}>
+                🕐 Retirada<br /><span style={{ fontWeight: 'normal', fontSize: '13px', opacity: 0.85 }}>20–25 min • Grátis</span>
               </button>
-              <button onClick={() => handleCheckout('entrega')} disabled={loading} style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', color: '#fff', border: 'none', padding: '20px', borderRadius: '10px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 'bold', opacity: loading ? 0.6 : 1, textAlign: 'center' }}>
-                🚚 Entrega<br /><span style={{ fontWeight: 'normal', fontSize: '13px', opacity: 0.9 }}>30–40 min • +R$ {deliveryFee.toFixed(2)}</span>
-              </button>
+              {storeInfo?.deliveries_enabled !== false && (
+                <button type="button" onClick={() => setCheckoutDeliveryType('entrega')} style={{ background: checkoutDeliveryType === 'entrega' ? 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' : '#f5f5f5', color: checkoutDeliveryType === 'entrega' ? '#fff' : '#555', border: checkoutDeliveryType === 'entrega' ? 'none' : '2px solid #ddd', padding: '16px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', textAlign: 'center' }}>
+                  🚚 Entrega<br /><span style={{ fontWeight: 'normal', fontSize: '13px', opacity: 0.85 }}>30–40 min • +R$ {deliveryFee.toFixed(2)}</span>
+                </button>
+              )}
             </div>
-            <p style={{ fontSize: '11px', color: '#bbb', textAlign: 'center', marginTop: '16px', marginBottom: 0 }}>
+
+            {checkoutDeliveryType === 'entrega' && (
+              <div style={{ background: '#f0f4ff', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
+                <h3 style={{ color: '#555', fontSize: '15px', margin: '0 0 12px 0' }}>📍 Endereço de entrega</h3>
+                <Input label="Rua, número e bairro *" value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} placeholder="Rua das Flores, 123 – Jardim das Rosas" />
+                <Input label="Complemento / Referência (opcional)" value={customerComplement} onChange={e => setCustomerComplement(e.target.value)} placeholder="Apto 4, próximo à padaria" />
+              </div>
+            )}
+
+            <Btn onClick={handleCheckout} disabled={loading || !checkoutDeliveryType} style={{ width: '100%' }}>
+              {loading ? 'Enviando pedido...' : 'Finalizar Pedido'}
+            </Btn>
+            <p style={{ fontSize: '11px', color: '#bbb', textAlign: 'center', marginTop: '12px', marginBottom: 0 }}>
               Ao fazer o pedido você concorda com os nossos{' '}
               <button onClick={() => setScreen('terms')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Termos de Uso</button>
               {' '}e{' '}
@@ -859,6 +892,9 @@ export default function App() {
                       </div>
                     )}
                     <div style={{ marginTop: '3px' }}><strong>Tipo:</strong> {order.delivery_type === 'retirada' ? '🕐 Retirada' : '🚚 Entrega'}</div>
+                    {order.delivery_type === 'entrega' && order.customer?.address?.street && (
+                      <div style={{ marginTop: '3px', color: '#3498db' }}><strong>📍 Endereço:</strong> {order.customer.address.street}{order.customer.address.neighborhood ? ` – ${order.customer.address.neighborhood}` : ''}</div>
+                    )}
                     {order.customer_notes && <div style={{ marginTop: '3px', color: '#667eea' }}><strong>Pagamento:</strong> {order.customer_notes}</div>}
                     {order.delivery_type === 'entrega' && !['entregue','cancelado'].includes(order.status) && (
                       <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -1198,7 +1234,7 @@ export default function App() {
           </div>
 
           {/* Configuração de entregas */}
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', marginBottom: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontWeight: 'bold', fontSize: '16px' }}>🚚 Entregas a domicílio</div>
               <div style={{ fontSize: '13px', color: '#999', marginTop: '3px' }}>
@@ -1220,6 +1256,33 @@ export default function App() {
             >
               {vendorSettings?.deliveries_enabled !== false ? '✓ Entregas Ativas' : '✗ Entregas Desativadas'}
             </button>
+          </div>
+
+          {/* Taxa de entrega */}
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 'bold', fontSize: '16px' }}>💲 Taxa de entrega</div>
+              <div style={{ fontSize: '13px', color: '#999', marginTop: '3px' }}>Valor cobrado do cliente em pedidos de entrega</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#667eea' }}>
+                R$ {Number(vendorSettings?.delivery_fee ?? 5).toFixed(2)}
+              </span>
+              <button
+                onClick={async () => {
+                  const input = window.prompt('Nova taxa de entrega (R$):', Number(vendorSettings?.delivery_fee ?? 5).toFixed(2));
+                  if (input === null) return;
+                  const val = parseFloat(input.replace(',', '.'));
+                  if (isNaN(val) || val < 0) { showAlert('Valor inválido'); return; }
+                  try {
+                    const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ delivery_fee: val }) });
+                    setVendorSettings(prev => ({ ...prev, ...data }));
+                    showAlert('Taxa atualizada!', 'success');
+                  } catch (err) { showAlert(err.message); }
+                }}
+                style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+              >✏️ Alterar</button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>

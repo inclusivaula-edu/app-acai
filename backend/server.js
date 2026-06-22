@@ -72,6 +72,9 @@ const sbErr = (error, res) => {
   return res.status(500).json({ error: 'Erro interno' });
 };
 
+// ── Helper: validação de email ──────────────────
+const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).toLowerCase());
+
 // ── Helper: gera slug URL-safe a partir do nome ─
 const generateSlug = (name) =>
   name.toLowerCase()
@@ -225,7 +228,7 @@ app.get('/api/store/:slug', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('vendors')
-      .select('name, slug, deliveries_enabled')
+      .select('name, slug, deliveries_enabled, delivery_fee')
       .eq('slug', req.params.slug)
       .eq('status', 'active')
       .single();
@@ -361,6 +364,7 @@ app.post('/api/auth/register-vendor', async (req, res) => {
 
     if (!email || !password || !name || !phone || !address || !cpf)
       return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'Email inválido' });
     if (password.length < 8)
       return res.status(400).json({ error: 'Senha deve ter mínimo 8 caracteres' });
 
@@ -412,6 +416,7 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email e senha obrigatórios' });
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'Email inválido' });
 
     const { data: user, error } = await supabase
       .from('vendors')
@@ -615,9 +620,13 @@ app.post('/api/orders', async (req, res) => {
     if (!vendor_slug)        return res.status(400).json({ error: 'vendor_slug obrigatório' });
 
     // Resolver vendor antes de validar produtos — garante isolamento multi-tenant
+    if (!customer?.phone?.trim()) return res.status(400).json({ error: 'Telefone do cliente é obrigatório' });
+    if (delivery_type === 'entrega' && !customer?.address?.street?.trim())
+      return res.status(400).json({ error: 'Endereço é obrigatório para entregas' });
+
     const { data: vendor, error: vErr } = await supabase
       .from('vendors')
-      .select('id, deliveries_enabled')
+      .select('id, deliveries_enabled, delivery_fee')
       .eq('slug', vendor_slug)
       .eq('status', 'active')
       .single();
@@ -656,7 +665,7 @@ app.post('/api/orders', async (req, res) => {
       return res.status(400).json({ error: 'Entregas não disponíveis no momento. Escolha retirada no local.' });
 
     const subtotal     = validatedItems.reduce((s, i) => s + (i.price * i.quantity), 0);
-    const delivery_fee = delivery_type === 'entrega' ? 5.00 : 0;
+    const delivery_fee = delivery_type === 'entrega' ? (Number(vendor.delivery_fee) || 5.00) : 0;
     const total        = subtotal + delivery_fee;
 
     const { data: order, error } = await supabase
@@ -933,7 +942,7 @@ app.patch('/api/orders/:id/commission-paid', [auth, planCheck], async (req, res)
 app.get('/api/vendors/settings', auth, async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('vendors').select('deliveries_enabled, slug, name').eq('id', req.user.id).single();
+      .from('vendors').select('deliveries_enabled, slug, name, delivery_fee').eq('id', req.user.id).single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
@@ -943,7 +952,7 @@ app.get('/api/vendors/settings', auth, async (req, res) => {
 
 app.patch('/api/vendors/settings', auth, async (req, res) => {
   try {
-    const allowed = ['deliveries_enabled', 'slug'];
+    const allowed = ['deliveries_enabled', 'slug', 'delivery_fee'];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
 
     if (updates.slug !== undefined) {
@@ -954,8 +963,14 @@ app.patch('/api/vendors/settings', auth, async (req, res) => {
       updates.slug = slug;
     }
 
+    if (updates.delivery_fee !== undefined) {
+      const fee = Number(updates.delivery_fee);
+      if (isNaN(fee) || fee < 0) return res.status(400).json({ error: 'Taxa de entrega inválida' });
+      updates.delivery_fee = fee;
+    }
+
     const { data, error } = await supabase
-      .from('vendors').update(updates).eq('id', req.user.id).select('deliveries_enabled, slug, name').single();
+      .from('vendors').update(updates).eq('id', req.user.id).select('deliveries_enabled, slug, name, delivery_fee').single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
