@@ -160,6 +160,7 @@ export default function App() {
   const [vendorSettings, setVendorSettings] = useState({ deliveries_enabled: true });
   const [plans, setPlans]             = useState([]);
   const [planStatus, setPlanStatus]   = useState(null);
+  const [stripeTestMode, setStripeTestMode] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('base');
   const [loading, setLoading]         = useState(false);
   const [alert, setAlert]             = useState({ msg: '', type: '' });
@@ -225,6 +226,7 @@ export default function App() {
         .catch(() => setStoreInfo(false));
     }
     apiFetch('/plans').then(setPlans).catch(() => {});
+    apiFetch('/stripe/config').then(d => setStripeTestMode(d.test_mode)).catch(() => {});
     apiFetch('/auth/me')
       .then(data => {
         if (data.token) authToken = data.token;
@@ -1084,6 +1086,11 @@ export default function App() {
             <p style={{ color: 'rgba(255,255,255,0.85)', marginTop: '8px', fontSize: '16px' }}>Gerencie seu negócio de açaí com facilidade</p>
           </div>
 
+          {stripeTestMode && (
+            <div style={{ background: '#fff8e1', border: '1px solid #ffe082', color: '#f57f17', padding: '10px 16px', borderRadius: '8px', marginBottom: '16px', textAlign: 'center', fontSize: '13px', fontWeight: '500' }}>
+              ⚠️ Modo de teste ativo — cobranças não são reais. Use o cartão <strong>4242 4242 4242 4242</strong>.
+            </div>
+          )}
           {canceled && (
             <div style={{ background: '#ffebee', color: '#c62828', padding: '12px 16px', borderRadius: '8px', marginBottom: '24px', textAlign: 'center', fontWeight: '500' }}>
               Assinatura cancelada. Você pode tentar novamente quando quiser.

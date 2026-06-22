@@ -169,6 +169,11 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
 
+// Aviso em produção com chave de teste
+if (stripe && process.env.NODE_ENV === 'production' && process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_')) {
+  console.warn('⚠️  ATENÇÃO: Stripe em modo TEST em produção! Cobranças não são reais. Troque para sk_live_.');
+}
+
 const PLANS = {
   monthly:    { name: 'Mensal',    price: 290.00, months: 1,  priceId: process.env.STRIPE_PRICE_MONTHLY    },
   semiannual: { name: 'Semestral', price: 250.00, months: 6,  priceId: process.env.STRIPE_PRICE_SEMIANNUAL },
@@ -293,6 +298,33 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
         .from('vendors').select('id').eq('stripe_subscription_id', sub.id).maybeSingle();
       if (vendor) {
         await supabase.from('vendors').update({ plan_status: 'canceled', stripe_subscription_id: null }).eq('id', vendor.id);
+      }
+    }
+
+    // Pagamento falhou — marca plano como inadimplente mas não cancela ainda
+    if (event.type === 'invoice.payment_failed') {
+      const invoice = event.data.object;
+      if (!invoice.subscription) { res.json({ received: true }); return; }
+      const { data: vendor } = await supabase
+        .from('vendors').select('id').eq('stripe_subscription_id', invoice.subscription).maybeSingle();
+      if (vendor) {
+        await supabase.from('vendors').update({ plan_status: 'past_due' }).eq('id', vendor.id);
+      }
+    }
+
+    // Assinatura pausada/alterada
+    if (event.type === 'customer.subscription.updated') {
+      const sub = event.data.object;
+      const { data: vendor } = await supabase
+        .from('vendors').select('id').eq('stripe_subscription_id', sub.id).maybeSingle();
+      if (vendor) {
+        const status = sub.status === 'active' ? 'active'
+          : sub.status === 'past_due' ? 'past_due'
+          : sub.status === 'canceled' ? 'canceled'
+          : sub.status === 'paused' ? 'paused'
+          : 'inactive';
+        const expiresAt = new Date(sub.current_period_end * 1000).toISOString();
+        await supabase.from('vendors').update({ plan_status: status, plan_expires_at: expiresAt }).eq('id', vendor.id);
       }
     }
   } catch (err) {
@@ -506,6 +538,16 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ============================================
+// STRIPE: configuração pública (publishable key)
+// ============================================
+app.get('/api/stripe/config', (req, res) => {
+  res.json({
+    publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || null,
+    test_mode: process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ?? true,
+  });
+});
+
+// ============================================
 // PLANOS: LISTAR (público)
 // ============================================
 app.get('/api/plans', (req, res) => {
@@ -543,14 +585,25 @@ app.post('/api/plans/subscribe', auth, async (req, res) => {
       await supabase.from('vendors').update({ stripe_customer_id: customerId }).eq('id', req.user.id);
     }
 
+    const isLive = process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_');
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'subscription',
-      payment_method_types: ['card'],
+      // Em live no Brasil: aceitar cartão + boleto; em teste só cartão (boleto não disponível em test mode)
+      payment_method_types: isLive ? ['card', 'boleto'] : ['card'],
       line_items: [{ price: plan.priceId, quantity: 1 }],
       success_url: `${FRONTEND_URL}?plan_success=1`,
-      cancel_url:  `${FRONTEND_URL}/plans?plan_canceled=1`,
+      cancel_url:  `${FRONTEND_URL}?plan_canceled=1`,
+      locale: 'pt-BR',
+      currency: 'brl',
       metadata: { vendor_id: req.user.id, plan_id },
+      subscription_data: {
+        metadata: { vendor_id: req.user.id, plan_id },
+      },
+      // Coletar endereço de cobrança (exigido para NF e compliance no Brasil)
+      billing_address_collection: 'required',
+      phone_number_collection: { enabled: true },
     });
 
     res.json({ url: session.url });
