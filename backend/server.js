@@ -290,33 +290,108 @@ app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req,
     const event = req.body;
     const type  = event?.type || event?.event || 'unknown';
 
-    // Desconexão — logar para o lojista saber que precisa reconectar
     if (type === 'Disconnected' || type === 'disconnected') {
       console.warn('⚠️ WhatsApp desconectado! Acesse z-api.io e escaneie o QR Code novamente.');
       return;
     }
 
-    // Mensagem recebida de cliente
     if (type === 'ReceivedCallback' || type === 'received') {
-      const phone   = event?.phone   || event?.from || '';
-      const text    = event?.text?.message || event?.body || '';
-      const fromMe  = event?.fromMe || false;
-      if (!fromMe && phone && text) {
-        console.log(`📲 Mensagem de ${phone}: ${text.substring(0, 120)}`);
-      }
-      return;
-    }
-
-    // Status de entrega (enviado, lido, etc.)
-    if (type === 'MessageStatusCallback' || type === 'message-status') {
-      const status = event?.status || '';
-      if (status === 'READ') {
-        // mensagem lida pelo cliente — apenas logar
+      const rawPhone   = String(event?.phone || event?.from || '').replace('@c.us', '').replace(/\D/g, '');
+      const text       = event?.text?.message || event?.body || '';
+      const fromMe     = event?.fromMe || false;
+      const name       = event?.senderName || event?.chatName || null;
+      const messageId  = event?.messageId || event?.zaapId || null;
+      if (!fromMe && rawPhone && text) {
+        await supabase.from('whatsapp_messages').insert({
+          phone:        rawPhone,
+          contact_name: name,
+          message:      text,
+          from_me:      false,
+          message_id:   messageId,
+        });
       }
       return;
     }
   } catch (err) {
     console.error('WhatsApp webhook error:', err.message);
+  }
+});
+
+// ============================================
+// MENSAGENS WHATSAPP: LISTAR CONVERSAS (vendor)
+// ============================================
+app.get('/api/messages', auth, async (req, res) => {
+  try {
+    // Última mensagem por número de telefone
+    const { data, error } = await supabase
+      .from('whatsapp_messages')
+      .select('id, phone, contact_name, message, from_me, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) return sbErr(error, res);
+
+    // Agrupar por phone — manter a mais recente e contar não-lidas (from_me=false)
+    const convMap = new Map();
+    for (const msg of data) {
+      if (!convMap.has(msg.phone)) {
+        convMap.set(msg.phone, {
+          phone:        msg.phone,
+          contact_name: msg.contact_name,
+          last_message: msg.message,
+          last_at:      msg.created_at,
+          from_me:      msg.from_me,
+          unread:       0,
+        });
+      }
+      if (!msg.from_me) convMap.get(msg.phone).unread++;
+    }
+
+    res.json([...convMap.values()].sort((a, b) => new Date(b.last_at) - new Date(a.last_at)));
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// MENSAGENS WHATSAPP: THREAD DE UM CONTATO (vendor)
+// ============================================
+app.get('/api/messages/:phone', auth, async (req, res) => {
+  try {
+    const phone = String(req.params.phone).replace(/\D/g, '');
+    const { data, error } = await supabase
+      .from('whatsapp_messages')
+      .select('id, phone, contact_name, message, from_me, created_at')
+      .eq('phone', phone)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    if (error) return sbErr(error, res);
+    res.json(data);
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// MENSAGENS WHATSAPP: RESPONDER (vendor)
+// ============================================
+app.post('/api/messages/:phone/reply', auth, async (req, res) => {
+  try {
+    const phone = String(req.params.phone).replace(/\D/g, '');
+    const { message } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: 'Mensagem não pode ser vazia' });
+
+    await sendWhatsApp(phone, message.trim());
+
+    const { data, error } = await supabase
+      .from('whatsapp_messages')
+      .insert({ phone, message: message.trim(), from_me: true })
+      .select()
+      .single();
+    if (error) return sbErr(error, res);
+
+    res.status(201).json(data);
+  } catch {
+    res.status(500).json({ error: 'Erro interno ao enviar mensagem' });
   }
 });
 

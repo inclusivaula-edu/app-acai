@@ -147,6 +147,12 @@ export default function App() {
   const [editingDel, setEditingDel] = useState(null);
   const [delivererForm, setDelivererForm] = useState({ name: '', phone: '', cpf: '', vehicle: '', commission_rate: '10' });
 
+  // estados mensagens WhatsApp
+  const [conversations, setConversations]   = useState([]);
+  const [activeConv, setActiveConv]         = useState(null);
+  const [convMessages, setConvMessages]     = useState([]);
+  const [replyText, setReplyText]           = useState('');
+
   // estados edição de taxa/valor do pedido
   const [editingFeeId, setEditingFeeId]     = useState(null);
   const [editingFeeVal, setEditingFeeVal]   = useState('');
@@ -207,6 +213,16 @@ export default function App() {
     const interval = setInterval(() => { fetchOrders(); fetchDashboard(); }, 30000);
     return () => clearInterval(interval);
   }, [user, screen]);
+
+  useEffect(() => {
+    if (!user || screen !== 'messages-admin') return;
+    fetchConversations();
+    const interval = setInterval(() => {
+      fetchConversations();
+      if (activeConv) fetchThread(activeConv.phone);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [user, screen, activeConv]);
 
   useEffect(() => {
     if (screen !== 'order-tracking' || !trackingOrderId) return;
@@ -284,6 +300,14 @@ export default function App() {
       const data = await apiFetch('/commissions');
       setCommissions(data);
     } catch { showAlert('Erro ao carregar comissões'); }
+  };
+
+  const fetchConversations = async () => {
+    try { setConversations(await apiFetch('/messages')); } catch {}
+  };
+
+  const fetchThread = async (phone) => {
+    try { setConvMessages(await apiFetch(`/messages/${phone}`)); } catch {}
   };
 
   const logout = async () => {
@@ -755,6 +779,159 @@ export default function App() {
     );
   }
 
+  // ─── MENSAGENS WHATSAPP ───────────────────────────────────────────────────────
+  if (screen === 'messages-admin') {
+    if (!sessionLoaded) return null;
+    if (!user) { setScreen('login'); return null; }
+
+    const selectConv = (conv) => {
+      setActiveConv(conv);
+      setConvMessages([]);
+      fetchThread(conv.phone);
+    };
+
+    const sendReply = async () => {
+      if (!replyText.trim() || !activeConv) return;
+      const text = replyText.trim();
+      setReplyText('');
+      try {
+        const msg = await apiFetch(`/messages/${activeConv.phone}/reply`, {
+          method: 'POST',
+          body: JSON.stringify({ message: text }),
+        });
+        setConvMessages(prev => [...prev, msg]);
+        fetchConversations();
+      } catch (err) { showAlert(err.message || 'Erro ao enviar'); setReplyText(text); }
+    };
+
+    const fmtTime = (iso) => {
+      const d = new Date(iso);
+      const today = new Date();
+      if (d.toDateString() === today.toDateString()) {
+        return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      }
+      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    };
+
+    return (
+      <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
+        <AdminHeader active="messages-admin" />
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px', display: 'flex', gap: '16px', height: 'calc(100vh - 80px)', boxSizing: 'border-box' }}>
+          <Alert msg={alert.msg} type={alert.type} />
+
+          {/* Lista de conversas */}
+          <div style={{ width: '320px', flexShrink: 0, background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold', fontSize: '16px', color: '#333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>💬 Conversas</span>
+              <button onClick={fetchConversations} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: '#999' }} title="Atualizar">🔄</button>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {conversations.length === 0 ? (
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: '#bbb' }}>
+                  <div style={{ fontSize: '36px', marginBottom: '12px' }}>💬</div>
+                  <p style={{ margin: 0, fontSize: '14px' }}>Nenhuma mensagem ainda</p>
+                  <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#ddd' }}>As mensagens dos clientes aparecerão aqui</p>
+                </div>
+              ) : conversations.map(conv => (
+                <div
+                  key={conv.phone}
+                  onClick={() => selectConv(conv)}
+                  style={{ padding: '14px 16px', borderBottom: '1px solid #f8f8f8', cursor: 'pointer', background: activeConv?.phone === conv.phone ? '#f0e7ff' : '#fff', transition: 'background 0.1s' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#333' }}>
+                      {conv.contact_name || conv.phone}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#bbb', flexShrink: 0, marginLeft: '8px' }}>{fmtTime(conv.last_at)}</div>
+                  </div>
+                  {conv.contact_name && (
+                    <div style={{ fontSize: '11px', color: '#bbb', marginBottom: '3px' }}>{conv.phone}</div>
+                  )}
+                  <div style={{ fontSize: '13px', color: conv.from_me ? '#999' : '#555', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {conv.from_me ? '✓ Você: ' : ''}{conv.last_message}
+                  </div>
+                  {conv.unread > 0 && (
+                    <div style={{ display: 'inline-block', background: '#25D366', color: '#fff', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold', padding: '1px 7px', marginTop: '4px' }}>{conv.unread}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Thread da conversa */}
+          <div style={{ flex: 1, background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+            {!activeConv ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#bbb' }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>💬</div>
+                <p style={{ margin: 0, fontSize: '16px' }}>Selecione uma conversa</p>
+              </div>
+            ) : (
+              <>
+                {/* Cabeçalho da conversa */}
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#25D366', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: '18px', flexShrink: 0 }}>
+                    {(activeConv.contact_name || activeConv.phone).charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 'bold', color: '#333' }}>{activeConv.contact_name || activeConv.phone}</div>
+                    {activeConv.contact_name && <div style={{ fontSize: '12px', color: '#999' }}>{activeConv.phone}</div>}
+                  </div>
+                  <a
+                    href={`https://wa.me/${activeConv.phone}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ marginLeft: 'auto', background: '#25D366', color: '#fff', padding: '7px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textDecoration: 'none' }}
+                  >
+                    📱 Abrir no WhatsApp
+                  </a>
+                </div>
+
+                {/* Mensagens */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '16px', background: '#f0f0f0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {convMessages.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: '#bbb', padding: '40px' }}>Carregando...</div>
+                  ) : convMessages.map(msg => (
+                    <div key={msg.id} style={{ display: 'flex', justifyContent: msg.from_me ? 'flex-end' : 'flex-start' }}>
+                      <div style={{
+                        maxWidth: '70%', padding: '8px 12px', borderRadius: msg.from_me ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                        background: msg.from_me ? '#DCF8C6' : '#fff',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                        fontSize: '14px', color: '#333', lineHeight: '1.4',
+                        wordBreak: 'break-word',
+                      }}>
+                        <div>{msg.message}</div>
+                        <div style={{ fontSize: '10px', color: '#aaa', textAlign: 'right', marginTop: '3px' }}>{fmtTime(msg.created_at)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Input de resposta */}
+                <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+                  <textarea
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+                    placeholder="Digite uma mensagem... (Enter para enviar)"
+                    rows={2}
+                    style={{ flex: 1, padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px', resize: 'none', outline: 'none', fontFamily: 'inherit', lineHeight: '1.4' }}
+                  />
+                  <button
+                    onClick={sendReply}
+                    disabled={!replyText.trim()}
+                    style={{ background: !replyText.trim() ? '#eee' : '#25D366', color: !replyText.trim() ? '#aaa' : '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: !replyText.trim() ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '14px', flexShrink: 0 }}
+                  >
+                    Enviar ✓
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── PLANOS ───────────────────────────────────────────────────────────────────
   if (screen === 'plans') {
     const PLAN_INFO = {
@@ -853,8 +1030,8 @@ export default function App() {
       <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
         <h1 style={{ margin: 0, fontSize: '20px', color: '#667eea' }}>🫐 {user?.name || 'Admin'}</h1>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {[['admin','📊 Dashboard'],['orders-admin','📦 Pedidos'],['products-admin','🛍️ Produtos'],['deliverers-admin','🚴 Entregadores'],['commissions-admin','💰 Comissões']].map(([s, label]) => (
-            <button key={s} onClick={() => { setScreen(s); if (s === 'commissions-admin') fetchCommissions(); if (s === 'products-admin') fetchAdminProducts(); }} style={{
+          {[['admin','📊 Dashboard'],['orders-admin','📦 Pedidos'],['products-admin','🛍️ Produtos'],['deliverers-admin','🚴 Entregadores'],['commissions-admin','💰 Comissões'],['messages-admin','💬 Mensagens']].map(([s, label]) => (
+            <button key={s} onClick={() => { setScreen(s); if (s === 'commissions-admin') fetchCommissions(); if (s === 'products-admin') fetchAdminProducts(); if (s === 'messages-admin') fetchConversations(); }} style={{
               background: active === s ? '#f0e7ff' : 'none', border: 'none', color: '#667eea',
               cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', padding: '7px 12px', borderRadius: '6px'
             }}>{label}</button>
