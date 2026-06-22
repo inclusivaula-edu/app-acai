@@ -67,6 +67,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── SSE: clientes conectados ao stream de mensagens ───────────────────────────
+const sseClients = new Set();
+
+function broadcastMessage(msg) {
+  if (!sseClients.size) return;
+  const payload = `data: ${JSON.stringify(msg)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(payload); } catch { sseClients.delete(client); }
+  }
+}
+
 // ── WhatsApp via Z-API (opcional — configura no .env) ─────────────────────────
 async function sendWhatsApp(phone, message) {
   let instanceId    = process.env.ZAPI_INSTANCE_ID || '';
@@ -302,19 +313,43 @@ app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req,
       const name       = event?.senderName || event?.chatName || null;
       const messageId  = event?.messageId || event?.zaapId || null;
       if (!fromMe && rawPhone && text) {
-        await supabase.from('whatsapp_messages').insert({
+        const { data: saved } = await supabase.from('whatsapp_messages').insert({
           phone:        rawPhone,
           contact_name: name,
           message:      text,
           from_me:      false,
           message_id:   messageId,
-        });
+        }).select().single();
+        if (saved) broadcastMessage(saved);
       }
       return;
     }
   } catch (err) {
     console.error('WhatsApp webhook error:', err.message);
   }
+});
+
+// ============================================
+// MENSAGENS WHATSAPP: STREAM EM TEMPO REAL (SSE)
+// ============================================
+app.get('/api/messages/stream', (req, res) => {
+  const token = req.query.token || req.cookies?.token || req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).end();
+  try { jwt.verify(token, JWT_SECRET); } catch { return res.status(401).end(); }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  res.write(': connected\n\n');
+
+  sseClients.add(res);
+  const heartbeat = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch { clearInterval(heartbeat); sseClients.delete(res); }
+  }, 25000);
+
+  req.on('close', () => { clearInterval(heartbeat); sseClients.delete(res); });
 });
 
 // ============================================
@@ -389,6 +424,7 @@ app.post('/api/messages/:phone/reply', auth, async (req, res) => {
       .single();
     if (error) return sbErr(error, res);
 
+    broadcastMessage(data);
     res.status(201).json(data);
   } catch {
     res.status(500).json({ error: 'Erro interno ao enviar mensagem' });

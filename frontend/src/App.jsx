@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ShoppingCart, LogOut, Lock } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -152,6 +152,8 @@ export default function App() {
   const [activeConv, setActiveConv]         = useState(null);
   const [convMessages, setConvMessages]     = useState([]);
   const [replyText, setReplyText]           = useState('');
+  const activeConvRef  = useRef(null);
+  const threadBottomRef = useRef(null);
 
   // estados edição de taxa/valor do pedido
   const [editingFeeId, setEditingFeeId]     = useState(null);
@@ -214,15 +216,51 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user, screen]);
 
+  // Manter ref sincronizada com activeConv para usar dentro do SSE sem stale closure
+  useEffect(() => { activeConvRef.current = activeConv; }, [activeConv]);
+
+  // Auto-scroll ao receber nova mensagem na thread
+  useEffect(() => {
+    if (threadBottomRef.current) threadBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [convMessages]);
+
+  // SSE — tempo real
   useEffect(() => {
     if (!user || screen !== 'messages-admin') return;
     fetchConversations();
-    const interval = setInterval(() => {
-      fetchConversations();
-      if (activeConv) fetchThread(activeConv.phone);
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [user, screen, activeConv]);
+
+    const token = authToken;
+    if (!token) return;
+
+    const es = new EventSource(`${API_URL}/messages/stream?token=${token}`);
+
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        // Atualizar lista de conversas
+        setConversations(prev => {
+          const exists = prev.find(c => c.phone === msg.phone);
+          const updated = {
+            phone:        msg.phone,
+            contact_name: msg.contact_name || exists?.contact_name || null,
+            last_message: msg.message,
+            last_at:      msg.created_at,
+            from_me:      msg.from_me,
+            unread:       exists ? exists.unread + (msg.from_me ? 0 : 1) : (msg.from_me ? 0 : 1),
+          };
+          return [updated, ...prev.filter(c => c.phone !== msg.phone)];
+        });
+        // Adicionar à thread se for a conversa ativa
+        if (activeConvRef.current?.phone === msg.phone) {
+          setConvMessages(prev => [...prev, msg]);
+        }
+      } catch {}
+    };
+
+    es.onerror = () => { es.close(); };
+
+    return () => es.close();
+  }, [user, screen]);
 
   useEffect(() => {
     if (screen !== 'order-tracking' || !trackingOrderId) return;
@@ -904,6 +942,7 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                  <div ref={threadBottomRef} />
                 </div>
 
                 {/* Input de resposta */}
