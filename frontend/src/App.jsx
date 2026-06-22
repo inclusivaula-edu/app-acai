@@ -110,6 +110,40 @@ const Select = ({ label, id, children, ...props }) => (
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
 const isInStandaloneMode = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
 
+// ─── HEADER ADMIN (fora do App para não ser recriado a cada render) ───────────
+function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onLogout, showAlert }) {
+  return (
+    <div style={{ background: '#fff', padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        <h1 style={{ margin: 0, fontSize: '20px', color: '#667eea' }}>🫐 {user?.name || 'Admin'}</h1>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {[['admin','📊 Dashboard'],['orders-admin','📦 Pedidos'],['products-admin','🛍️ Produtos'],['deliverers-admin','🚴 Entregadores'],['commissions-admin','💰 Comissões'],['messages-admin','💬 Mensagens']].map(([s, label]) => (
+            <button key={s} onClick={() => onNavigate(s)} style={{
+              background: active === s ? '#f0e7ff' : 'none', border: 'none', color: '#667eea',
+              cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', padding: '7px 12px', borderRadius: '6px'
+            }}>{label}</button>
+          ))}
+          <button onClick={() => {
+            const slug = vendorSettings?.slug;
+            if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
+            else showAlert('Configure o link da loja primeiro (aba Entregadores → Link da Loja)', 'error');
+          }} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px' }}>🔗 Ver Cardápio</button>
+          <button onClick={() => onNavigate('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
+            {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active'
+              ? '✓ Plano Ativo'
+              : planStatus?.plan === 'trial'
+                ? `⏳ Trial: ${planStatus.trial_days_left ?? '?'}d`
+                : '⚠️ Planos'}
+          </button>
+          <button onClick={onLogout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 'bold' }}>
+            <LogOut size={14} /> Sair
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -913,7 +947,7 @@ export default function App() {
 
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
-        <AdminHeader active="messages-admin" />
+        <AdminHeader active="messages-admin" {...adminHeaderProps} />
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px', display: 'flex', gap: '16px', height: 'calc(100vh - 80px)', boxSizing: 'border-box' }}>
           <Alert msg={alert.msg} type={alert.type} />
 
@@ -1123,37 +1157,7 @@ export default function App() {
     );
   }
 
-  // ─── HEADER ADMIN ─────────────────────────────────────────────────────────────
-  const AdminHeader = ({ active }) => (
-    <div style={{ background: '#fff', padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-        <h1 style={{ margin: 0, fontSize: '20px', color: '#667eea' }}>🫐 {user?.name || 'Admin'}</h1>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {[['admin','📊 Dashboard'],['orders-admin','📦 Pedidos'],['products-admin','🛍️ Produtos'],['deliverers-admin','🚴 Entregadores'],['commissions-admin','💰 Comissões'],['messages-admin','💬 Mensagens']].map(([s, label]) => (
-            <button key={s} onClick={() => { setScreen(s); if (s === 'commissions-admin') fetchCommissions(); if (s === 'products-admin') fetchAdminProducts(); if (s === 'messages-admin') fetchConversations(); }} style={{
-              background: active === s ? '#f0e7ff' : 'none', border: 'none', color: '#667eea',
-              cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', padding: '7px 12px', borderRadius: '6px'
-            }}>{label}</button>
-          ))}
-          <button onClick={() => {
-            const slug = vendorSettings?.slug;
-            if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
-            else showAlert('Configure o link da loja primeiro (aba Entregadores → Link da Loja)', 'error');
-          }} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px' }}>🔗 Ver Cardápio</button>
-          <button onClick={() => setScreen('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
-            {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active'
-              ? '✓ Plano Ativo'
-              : planStatus?.plan === 'trial'
-                ? `⏳ Trial: ${planStatus.trial_days_left ?? '?'}d`
-                : '⚠️ Planos'}
-          </button>
-          <button onClick={logout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 'bold' }}>
-            <LogOut size={14} /> Sair
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  const adminHeaderProps = { user, vendorSettings, planStatus, showAlert, onLogout: logout, onNavigate: (s) => { setScreen(s); if (s === 'commissions-admin') fetchCommissions(); if (s === 'products-admin') fetchAdminProducts(); if (s === 'messages-admin') fetchConversations(); } };
 
   // ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
   if (screen === 'admin') {
@@ -1161,7 +1165,7 @@ export default function App() {
     if (!user) { setScreen('login'); return null; }
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
-        <AdminHeader active="admin" />
+        <AdminHeader active="admin" {...adminHeaderProps} />
         <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '28px 20px' }}>
           <Alert msg={alert.msg} type={alert.type} />
           {!dashboard ? (
@@ -1286,7 +1290,7 @@ export default function App() {
 
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
-        <AdminHeader active="orders-admin" />
+        <AdminHeader active="orders-admin" {...adminHeaderProps} />
         <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '28px 20px' }}>
           <Alert msg={alert.msg} type={alert.type} />
           {orders.length === 0 ? (
@@ -1518,7 +1522,7 @@ export default function App() {
 
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
-        <AdminHeader active="products-admin" />
+        <AdminHeader active="products-admin" {...adminHeaderProps} />
         <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '28px 20px' }}>
           <Alert msg={alert.msg} type={alert.type} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -1652,7 +1656,7 @@ export default function App() {
 
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
-        <AdminHeader active="deliverers-admin" />
+        <AdminHeader active="deliverers-admin" {...adminHeaderProps} />
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: '28px 20px' }}>
           <Alert msg={alert.msg} type={alert.type} />
 
@@ -1878,7 +1882,7 @@ export default function App() {
     if (!user) { setScreen('login'); return null; }
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
-        <AdminHeader active="commissions-admin" />
+        <AdminHeader active="commissions-admin" {...adminHeaderProps} />
         <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '28px 20px' }}>
           <Alert msg={alert.msg} type={alert.type} />
           <h2 style={{ marginBottom: '24px' }}>💰 Comissões dos Entregadores</h2>

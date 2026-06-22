@@ -4,6 +4,7 @@
 
 const express      = require('express');
 const cors         = require('cors');
+const helmet       = require('helmet');
 const jwt          = require('jsonwebtoken');
 const bcrypt       = require('bcryptjs');
 const dotenv       = require('dotenv');
@@ -25,6 +26,11 @@ if (missing.length) {
 
 const app          = express();
 const PORT         = process.env.PORT || 5000;
+
+app.use(helmet({
+  contentSecurityPolicy: false, // frontend inline styles são extensos
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // imagens públicas do Storage
+}));
 const JWT_SECRET   = process.env.JWT_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
@@ -48,33 +54,40 @@ app.use((req, res, next) => {
   express.json({ limit: '100kb' })(req, res, next);
 });
 
-// ── Rate limiting simples ──────────────────────
-const hits = new Map();
-app.use((req, res, next) => {
-  const ip  = req.ip;
-  const now = Date.now();
-  const win = 15 * 60 * 1000;
-  const max = 300;
+// ── Rate limiting ──────────────────────────────
+function makeRateLimiter(windowMs, max, message) {
+  const hits = new Map();
+  return (req, res, next) => {
+    const key = req.ip;
+    const now = Date.now();
+    // Limpar entradas antigas
+    for (const [k, v] of hits) { if (now - v.start > windowMs) hits.delete(k); }
+    const d = hits.get(key);
+    if (!d || now - d.start > windowMs) { hits.set(key, { count: 1, start: now }); return next(); }
+    if (d.count++ >= max) return res.status(429).json({ error: message });
+    next();
+  };
+}
 
-  // Limpar entradas antigas para evitar vazamento de memória
-  for (const [k, v] of hits) {
-    if (now - v.start > win) hits.delete(k);
-  }
+// Global: 300 req / 15 min por IP
+const globalLimiter = makeRateLimiter(15 * 60 * 1000, 300, 'Muitas requisições. Aguarde 15 minutos.');
+// Auth: 10 tentativas / 15 min por IP (proteção contra brute-force)
+const authLimiter   = makeRateLimiter(15 * 60 * 1000, 10, 'Muitas tentativas de login. Aguarde 15 minutos.');
 
-  const d = hits.get(ip);
-  if (!d || now - d.start > win) { hits.set(ip, { count: 1, start: now }); }
-  else if (d.count++ > max) return res.status(429).json({ error: 'Muitas requisições. Aguarde 15 minutos.' });
-  next();
-});
+app.use(globalLimiter);
+app.use('/api/auth/login',           authLimiter);
+app.use('/api/auth/register-vendor', authLimiter);
 
-// ── SSE: clientes conectados ao stream de mensagens ───────────────────────────
-const sseClients = new Set();
+// ── SSE: clientes conectados ao stream de mensagens, isolados por vendor_id ───
+const sseClients = new Map(); // vendorId → Set<res>
 
 function broadcastMessage(msg) {
-  if (!sseClients.size) return;
+  const vendorId = msg.vendor_id;
+  const clients  = vendorId ? sseClients.get(String(vendorId)) : null;
+  if (!clients?.size) return;
   const payload = `data: ${JSON.stringify(msg)}\n\n`;
-  for (const client of sseClients) {
-    try { client.write(payload); } catch { sseClients.delete(client); }
+  for (const client of clients) {
+    try { client.write(payload); } catch { clients.delete(client); }
   }
 }
 
@@ -295,6 +308,13 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
 // WEBHOOK WHATSAPP — Z-API (receber eventos)
 // ============================================
 app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req, res) => {
+  // Verificar secret token se configurado
+  const waSecret = process.env.ZAPI_WEBHOOK_SECRET;
+  if (waSecret) {
+    const provided = req.headers['x-webhook-secret'] || req.query.secret;
+    if (provided !== waSecret) return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   res.json({ received: true }); // responder rápido para Z-API não retentar
 
   try {
@@ -335,7 +355,10 @@ app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req,
 app.get('/api/messages/stream', (req, res) => {
   const token = req.query.token || req.cookies?.token || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).end();
-  try { jwt.verify(token, JWT_SECRET); } catch { return res.status(401).end(); }
+  let user;
+  try { user = jwt.verify(token, JWT_SECRET); } catch { return res.status(401).end(); }
+
+  const vendorId = String(user.id);
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -344,12 +367,20 @@ app.get('/api/messages/stream', (req, res) => {
   res.flushHeaders();
   res.write(': connected\n\n');
 
-  sseClients.add(res);
+  if (!sseClients.has(vendorId)) sseClients.set(vendorId, new Set());
+  sseClients.get(vendorId).add(res);
+
   const heartbeat = setInterval(() => {
-    try { res.write(': ping\n\n'); } catch { clearInterval(heartbeat); sseClients.delete(res); }
+    try { res.write(': ping\n\n'); } catch {
+      clearInterval(heartbeat);
+      sseClients.get(vendorId)?.delete(res);
+    }
   }, 25000);
 
-  req.on('close', () => { clearInterval(heartbeat); sseClients.delete(res); });
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseClients.get(vendorId)?.delete(res);
+  });
 });
 
 // ============================================
@@ -588,15 +619,17 @@ app.post('/api/auth/register-vendor', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
 
-    // Gera slug único a partir do nome
-    let slug = generateSlug(name) || 'loja';
+    // Gera slug único a partir do nome (máximo 10 tentativas)
+    const baseSlug = generateSlug(name) || 'loja';
+    let slug = baseSlug;
     let attempt = 0;
-    while (true) {
+    while (attempt < 10) {
       const { data: taken } = await supabase.from('vendors').select('id').eq('slug', slug).maybeSingle();
       if (!taken) break;
       attempt++;
-      slug = `${generateSlug(name)}-${attempt + 1}`;
+      slug = `${baseSlug}-${attempt + 1}`;
     }
+    if (attempt >= 10) slug = `${baseSlug}-${Date.now().toString(36)}`;
 
     const { data: vendor, error } = await supabase
       .from('vendors')
@@ -878,10 +911,13 @@ app.post('/api/orders', async (req, res) => {
     const delivery_fee = delivery_type === 'entrega' ? (Number(vendor.delivery_fee) || 5.00) : 0;
     const total        = subtotal + delivery_fee;
 
+    // Gerar número de pedido sequencial baseado em timestamp + 4 dígitos aleatórios
+    const order_number = `#${Date.now().toString(36).toUpperCase().slice(-5)}${Math.floor(1000 + Math.random() * 9000)}`;
+
     const { data: order, error } = await supabase
       .from('orders')
       .insert({
-        order_number:            '',
+        order_number,
         vendor_id:               vendor.id,
         customer_name:           customer.name,
         customer_email:          customer.email || null,
@@ -1290,11 +1326,13 @@ app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
 
     const vendorId = req.user.id;
 
+    // Buscar apenas os últimos 500 pedidos para as métricas — evita OOM com lojas grandes
     const { data: allOrders, error } = await supabase
       .from('orders')
       .select('id, total, status, payment_status, created_at, customer_name, order_number')
       .eq('vendor_id', vendorId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(500);
 
     if (error) return sbErr(error, res);
 
@@ -1329,16 +1367,25 @@ app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
 // ============================================
 // PRODUTOS: IMAGEM — upload direto via backend (evita CORS do Supabase)
 // ============================================
+const ALLOWED_IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+
 app.put('/api/products/:id/upload-image', [auth, planCheck, express.raw({ type: '*/*', limit: '6mb' })], async (req, res) => {
   try {
     if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'Arquivo de imagem obrigatório' });
+
+    // Validar tipo real pelo magic bytes (não confiar no Content-Type do cliente)
+    const { fileTypeFromBuffer } = await import('file-type');
+    const detected = await fileTypeFromBuffer(req.body);
+    if (!detected || !ALLOWED_IMAGE_TYPES[detected.mime]) {
+      return res.status(400).json({ error: 'Tipo de arquivo inválido. Envie JPG, PNG, WEBP ou GIF.' });
+    }
 
     const { data: product } = await supabase
       .from('products').select('id').eq('id', req.params.id).eq('vendor_id', req.user.id).single();
     if (!product) return res.status(404).json({ error: 'Produto não encontrado' });
 
-    const content_type = (req.headers['content-type'] || 'image/jpeg').split(';')[0].trim();
-    const ext  = content_type.split('/')[1]?.split('+')[0] || 'jpg';
+    const content_type = detected.mime;
+    const ext  = ALLOWED_IMAGE_TYPES[content_type];
     const path = `${req.user.id}/${req.params.id}.${ext}`;
 
     const { error: bErr } = await supabase.storage.getBucket('product-images');
@@ -1393,10 +1440,22 @@ app.post('/api/products/:id/image-url', [auth, planCheck], async (req, res) => {
 // ============================================
 // PRODUTOS: IMAGEM — salvar URL após upload
 // ============================================
+const SUPABASE_STORAGE_HOST = process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).hostname : null;
+
 app.patch('/api/products/:id/image', [auth, planCheck], async (req, res) => {
   try {
     const { image_url } = req.body;
     if (!image_url) return res.status(400).json({ error: 'image_url obrigatória' });
+
+    // Aceitar apenas URLs do próprio Supabase Storage
+    try {
+      const parsed = new URL(image_url);
+      if (SUPABASE_STORAGE_HOST && parsed.hostname !== SUPABASE_STORAGE_HOST) {
+        return res.status(400).json({ error: 'URL de imagem inválida' });
+      }
+    } catch {
+      return res.status(400).json({ error: 'image_url inválida' });
+    }
     const { data, error } = await supabase
       .from('products').update({ image_url }).eq('id', req.params.id).eq('vendor_id', req.user.id).select().single();
     if (error) return sbErr(error, res);
@@ -1414,15 +1473,21 @@ app.put('/api/vendors/logo', [auth, express.raw({ type: '*/*', limit: '6mb' })],
   try {
     if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'Arquivo de imagem obrigatório' });
 
-    const content_type = (req.headers['content-type'] || 'image/jpeg').split(';')[0].trim();
-    const ext  = content_type.split('/')[1]?.split('+')[0] || 'jpg';
+    const { fileTypeFromBuffer } = await import('file-type');
+    const detected = await fileTypeFromBuffer(req.body);
+    if (!detected || !ALLOWED_IMAGE_TYPES[detected.mime]) {
+      return res.status(400).json({ error: 'Tipo de arquivo inválido. Envie JPG, PNG, WEBP ou GIF.' });
+    }
+
+    const content_type = detected.mime;
+    const ext  = ALLOWED_IMAGE_TYPES[content_type];
     const path = `${req.user.id}/logo.${ext}`;
 
     const { error: bErr } = await supabase.storage.getBucket('vendor-logos');
     if (bErr) await supabase.storage.createBucket('vendor-logos', { public: true, fileSizeLimit: 5242880 });
 
     const { error: uploadErr } = await supabase.storage.from('vendor-logos').upload(path, req.body, {
-      contentType: content_type,
+      contentType: detected.mime,
       upsert: true,
     });
     if (uploadErr) { console.error('Logo upload error:', uploadErr); return res.status(500).json({ error: 'Erro ao fazer upload da logo' }); }
