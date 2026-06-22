@@ -132,6 +132,8 @@ export default function App() {
   const [lastOrder, setLastOrder]     = useState(null);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installed, setInstalled]     = useState(false);
+  const installPromptRef = useRef(null);
+  const promptShown      = useRef(false);
   const [trackingOrderId, setTrackingOrderId] = useState(initTrackId);
   const [trackedOrder, setTrackedOrder]       = useState(null);
 
@@ -206,11 +208,31 @@ export default function App() {
       setScreen('admin');
     }
 
-    // PWA install prompt
-    const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    // PWA install prompt — captura o evento e dispara no primeiro clique do cliente
+    const handler = (e) => {
+      e.preventDefault();
+      installPromptRef.current = e;
+      setInstallPrompt(e);
+    };
     window.addEventListener('beforeinstallprompt', handler);
-    window.addEventListener('appinstalled', () => { setInstalled(true); setInstallPrompt(null); });
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', () => { setInstalled(true); setInstallPrompt(null); installPromptRef.current = null; });
+
+    // Primeiro clique em qualquer lugar na tela do cliente → abre o prompt de instalação
+    const onFirstClick = async () => {
+      if (promptShown.current || !installPromptRef.current || isInStandaloneMode()) return;
+      promptShown.current = true;
+      installPromptRef.current.prompt();
+      const result = await installPromptRef.current.userChoice;
+      if (result.outcome === 'accepted') setInstalled(true);
+      setInstallPrompt(null);
+      installPromptRef.current = null;
+    };
+    window.addEventListener('click', onFirstClick, { once: true });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('click', onFirstClick);
+    };
   }, []);
 
   useEffect(() => {
