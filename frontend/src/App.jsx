@@ -106,6 +106,10 @@ const Select = ({ label, id, children, ...props }) => (
   </div>
 );
 
+// ─── BOTÃO DE INSTALAÇÃO PWA ─────────────────────────────────────────────────
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+const isInStandaloneMode = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -126,6 +130,8 @@ export default function App() {
   const [loading, setLoading]         = useState(false);
   const [alert, setAlert]             = useState({ msg: '', type: '' });
   const [lastOrder, setLastOrder]     = useState(null);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installed, setInstalled]     = useState(false);
   const [trackingOrderId, setTrackingOrderId] = useState(initTrackId);
   const [trackedOrder, setTrackedOrder]       = useState(null);
 
@@ -199,6 +205,12 @@ export default function App() {
       window.history.replaceState({}, '', window.location.pathname);
       setScreen('admin');
     }
+
+    // PWA install prompt
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', () => { setInstalled(true); setInstallPrompt(null); });
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   useEffect(() => {
@@ -443,6 +455,13 @@ export default function App() {
               <h1 style={{ margin: 0, fontSize: '22px', color: '#667eea' }}>{storeInfo?.name || 'Açaí Shop'}</h1>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Botão instalar PWA no menu */}
+              {!isInStandaloneMode() && !installed && installPrompt && (
+                <button
+                  onClick={async () => { installPrompt.prompt(); const r = await installPrompt.userChoice; if (r.outcome === 'accepted') setInstalled(true); setInstallPrompt(null); }}
+                  style={{ background: '#25D366', color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 13px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+                >📲 Instalar</button>
+              )}
               {user?.role === 'vendor' && (
                 <>
                   <button onClick={() => setScreen('admin')} style={{ background: '#f0e7ff', border: 'none', color: '#667eea', cursor: 'pointer', padding: '7px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>📊 Admin</button>
@@ -729,6 +748,25 @@ export default function App() {
               </Btn>
             )}
             <Btn onClick={() => setScreen('menu')} style={{ width: '100%' }}>Fazer novo pedido</Btn>
+
+            {/* Botão instalar PWA */}
+            {!isInStandaloneMode() && !installed && (
+              installPrompt ? (
+                <button
+                  onClick={async () => { installPrompt.prompt(); const r = await installPrompt.userChoice; if (r.outcome === 'accepted') setInstalled(true); setInstallPrompt(null); }}
+                  style={{ background: '#25D366', color: '#fff', border: 'none', borderRadius: '8px', padding: '12px', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer', width: '100%' }}
+                >
+                  📲 Instalar app no celular
+                </button>
+              ) : isIOS() ? (
+                <div style={{ background: '#f0f4ff', border: '1px solid #c5cae9', borderRadius: '10px', padding: '12px 14px', fontSize: '13px', color: '#555', textAlign: 'left' }}>
+                  <strong>📲 Instalar no iPhone:</strong> toque em <strong>Compartilhar</strong> (ícone ↑) → <strong>"Adicionar à Tela de Início"</strong>
+                </div>
+              ) : null
+            )}
+            {installed && (
+              <div style={{ fontSize: '13px', color: '#2e7d32', textAlign: 'center' }}>✅ App instalado!</div>
+            )}
           </div>
         </div>
       </div>
