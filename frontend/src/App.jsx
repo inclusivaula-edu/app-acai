@@ -641,7 +641,7 @@ export default function App() {
           )}
           <div style={{ textAlign: 'center', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #eee' }}>
             <span style={{ fontSize: '14px', color: '#999' }}>Não tem conta? </span>
-            <button onClick={() => setScreen('register')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>Criar conta grátis</button>
+            <button onClick={() => setScreen('plans-preview')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>Criar conta grátis</button>
           </div>
         </div>
       </div>
@@ -2203,6 +2203,61 @@ export default function App() {
   }
 
   // ─── CADASTRO DE LOJISTA ─────────────────────────────────────────────────────
+  // ─── PREVIEW DE PLANOS (antes do cadastro) ───────────────────────────────────
+  if (screen === 'plans-preview') {
+    const PLAN_INFO = [
+      { id: 'monthly',    label: 'Mensal',    price: 290, per: 'mês',   badge: null,           months: 1  },
+      { id: 'semiannual', label: 'Semestral', price: 250, per: 'mês',   badge: 'Mais popular', months: 6  },
+      { id: 'annual',     label: 'Anual',     price: 210, per: 'mês',   badge: 'Melhor custo', months: 12 },
+    ];
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ background: '#fff', borderRadius: '20px', padding: '40px 36px', maxWidth: '520px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <div style={{ fontSize: '44px', marginBottom: '8px' }}>🫐</div>
+            <h1 style={{ margin: '0 0 6px', fontSize: '22px', color: '#333' }}>Comece com 14 dias grátis</h1>
+            <p style={{ margin: 0, fontSize: '14px', color: '#999' }}>Após o trial, escolha um plano para continuar</p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '24px' }}>
+            {PLAN_INFO.map(p => (
+              <div key={p.id} style={{ border: p.badge === 'Mais popular' ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '12px', padding: '14px 10px', textAlign: 'center', position: 'relative' }}>
+                {p.badge && (
+                  <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: p.badge === 'Mais popular' ? '#667eea' : '#2ecc71', color: '#fff', fontSize: '10px', padding: '2px 8px', borderRadius: '20px', whiteSpace: 'nowrap', fontWeight: 'bold' }}>{p.badge}</div>
+                )}
+                <div style={{ fontSize: '11px', color: '#999', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{p.label}</div>
+                <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#333' }}>R${p.price}</div>
+                <div style={{ fontSize: '11px', color: '#aaa' }}>/{p.per}</div>
+                {p.months > 1 && <div style={{ fontSize: '11px', color: '#667eea', marginTop: '4px', fontWeight: 'bold' }}>Total R${(p.price * p.months).toFixed(0)}</div>}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ background: '#f8f9ff', borderRadius: '10px', padding: '14px 16px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {['14 dias grátis para testar tudo', 'Sem cartão de crédito no trial', 'Cardápio online + pedidos + WhatsApp', 'Cancele quando quiser'].map(item => (
+              <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#555' }}>
+                <span style={{ color: '#2ecc71', fontWeight: 'bold', fontSize: '15px' }}>✓</span> {item}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <button onClick={() => setScreen('register')} style={{ width: '100%', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', border: 'none', padding: '14px', borderRadius: '10px', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer' }}>
+              Criar conta e começar trial →
+            </button>
+            <button onClick={() => setScreen('login')} style={{ width: '100%', background: 'none', border: '1px solid #e0e0e0', color: '#667eea', padding: '11px', borderRadius: '10px', fontSize: '14px', cursor: 'pointer' }}>
+              Já tenho conta — entrar
+            </button>
+          </div>
+
+          <p style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', margin: '16px 0 0' }}>
+            Após o trial a conta é bloqueada até a assinatura de um plano.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (screen === 'register') {
     const handleRegister = async (e) => {
       e.preventDefault(); setLoading(true);
