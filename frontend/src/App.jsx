@@ -9,10 +9,16 @@ const PLAN_ERROR_CODES = new Set(['TRIAL_EXPIRED', 'PLAN_INACTIVE', 'PLAN_EXPIRE
 let authToken = null;
 
 // Slug da loja e ID de rastreamento lidos da URL ao carregar a página
-let vendorSlug   = new URLSearchParams(window.location.search).get('loja')   || null;
-let initTrackId  = new URLSearchParams(window.location.search).get('pedido') || null;
+const _urlParams   = new URLSearchParams(window.location.search);
+let vendorSlug     = _urlParams.get('loja')          || null;
+let initTrackId    = _urlParams.get('pedido')         || null;
+const initResetTk  = _urlParams.get('reset_password') || null;
+const initConfirmTk = _urlParams.get('confirm_email') || null;
 
-const apiFetch = async (path, options = {}) => {
+let isRefreshing = false;
+let refreshQueue = [];
+
+const apiFetch = async (path, options = {}, _isRetry = false) => {
   const { headers: extraHeaders, ...rest } = options;
   const authHeaders = authToken ? { 'Authorization': `Bearer ${authToken}` } : {};
   const res = await fetch(`${API_URL}${path}`, {
@@ -20,7 +26,32 @@ const apiFetch = async (path, options = {}) => {
     headers: { 'Content-Type': 'application/json', ...authHeaders, ...extraHeaders },
     ...rest,
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+
+  // Se token expirou, tentar refresh silencioso
+  if (res.status === 401 && data.code === 'TOKEN_EXPIRED' && !_isRetry && path !== '/auth/refresh') {
+    if (!isRefreshing) {
+      isRefreshing = true;
+      try {
+        const refreshData = await apiFetch('/auth/refresh', { method: 'POST' }, true);
+        if (refreshData.token) authToken = refreshData.token;
+        refreshQueue.forEach(fn => fn(refreshData.token));
+        refreshQueue = [];
+        isRefreshing = false;
+        return apiFetch(path, options, true); // retry original request
+      } catch {
+        isRefreshing = false;
+        refreshQueue.forEach(fn => fn(null));
+        refreshQueue = [];
+        // Refresh falhou — deixa o erro original passar
+      }
+    } else {
+      // Já está atualizando, aguardar na fila
+      await new Promise(resolve => refreshQueue.push(resolve));
+      return apiFetch(path, options, true);
+    }
+  }
+
   if (!res.ok) {
     const err = new Error(data.error || 'Erro na requisição');
     err.code = data.code;
@@ -111,9 +142,16 @@ const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSS
 const isInStandaloneMode = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
 
 // ─── HEADER ADMIN (fora do App para não ser recriado a cada render) ───────────
-function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onLogout, showAlert }) {
+function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onLogout, showAlert, emailConfirmed, onResendConfirmation }) {
   return (
-    <div style={{ background: '#fff', padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
+    <div style={{ background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
+    {emailConfirmed === false && (
+      <div style={{ background: '#fff8e1', borderBottom: '1px solid #ffe082', padding: '8px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', fontSize: '13px', color: '#f57f17' }}>
+        ✉️ <strong>Confirme seu email</strong> — acesse sua caixa de entrada e clique no link que enviamos para {user?.email}.
+        <button onClick={onResendConfirmation} style={{ background: 'none', border: '1px solid #f57f17', color: '#f57f17', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Reenviar</button>
+      </div>
+    )}
+      <div style={{ padding: '16px 20px' }}>
       <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
         <h1 style={{ margin: 0, fontSize: '20px', color: '#667eea' }}>🫐 {user?.name || 'Admin'}</h1>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -140,6 +178,7 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
           </button>
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -147,7 +186,12 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [screen, setScreen]           = useState(initTrackId ? 'order-tracking' : (vendorSlug ? 'menu' : 'login'));
+  const [screen, setScreen]           = useState(
+    initResetTk  ? 'reset-password' :
+    initConfirmTk ? 'confirm-email' :
+    initTrackId  ? 'order-tracking' :
+    (vendorSlug  ? 'menu' : 'login')
+  );
   const [storeInfo, setStoreInfo]     = useState(null);
   const [user, setUser]               = useState(null);
   const [sessionLoaded, setSessionLoaded] = useState(false);
@@ -179,6 +223,9 @@ export default function App() {
   const [customerComplement, setCustomerComplement] = useState('');
   const [checkoutDeliveryType, setCheckoutDeliveryType] = useState('');
   const [paymentMethod, setPaymentMethod]     = useState('PIX');
+
+  // estados email confirmation/reset
+  const [emailConfirmed, setEmailConfirmed] = useState(null); // null=desconhecido, true/false
 
   // estados tela produtos-admin
   const [editingProduct, setEditingProduct] = useState(null);
@@ -425,6 +472,133 @@ export default function App() {
     setScreen('menu');
   };
 
+  const resendConfirmation = async () => {
+    try {
+      await apiFetch('/auth/resend-confirmation', { method: 'POST' });
+      showAlert('Email de confirmação reenviado! Verifique sua caixa de entrada.', 'success');
+    } catch (err) { showAlert(err.message || 'Erro ao reenviar email'); }
+  };
+
+  // ─── CONFIRMAR EMAIL (redirect do link) ──────────────────────────────────────
+  if (screen === 'confirm-email') {
+    const [confirmStatus, setConfirmStatus] = React.useState('loading');
+    React.useEffect(() => {
+      if (!initConfirmTk) { setConfirmStatus('error'); return; }
+      apiFetch('/auth/confirm-email', { method: 'POST', body: JSON.stringify({ token: initConfirmTk }) })
+        .then(() => { setConfirmStatus('success'); setEmailConfirmed(true); window.history.replaceState({}, '', window.location.pathname); })
+        .catch(() => setConfirmStatus('error'));
+    }, []);
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ background: '#fff', borderRadius: '16px', padding: '48px 40px', maxWidth: '400px', width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          {confirmStatus === 'loading' && (<><div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div><p style={{ color: '#667eea', fontWeight: 'bold' }}>Confirmando email...</p></>)}
+          {confirmStatus === 'success' && (<><div style={{ fontSize: '56px', marginBottom: '16px' }}>✅</div><h2 style={{ color: '#2e7d32', margin: '0 0 8px' }}>Email confirmado!</h2><p style={{ color: '#555' }}>Sua conta está ativa. Você já pode usar todos os recursos.</p><Btn onClick={() => setScreen(user ? 'admin' : 'login')} style={{ marginTop: '16px' }}>Ir para o painel</Btn></>)}
+          {confirmStatus === 'error' && (<><div style={{ fontSize: '56px', marginBottom: '16px' }}>❌</div><h2 style={{ color: '#c62828', margin: '0 0 8px' }}>Link inválido</h2><p style={{ color: '#555' }}>Este link pode ter expirado ou já foi usado. Faça login e reenvie o email de confirmação.</p><Btn onClick={() => setScreen('login')} style={{ marginTop: '16px' }}>Fazer login</Btn></>)}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── VERIFICAÇÃO PENDENTE (após registro) ─────────────────────────────────────
+  if (screen === 'verify-email-pending') {
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ background: '#fff', borderRadius: '16px', padding: '48px 40px', maxWidth: '440px', width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ fontSize: '56px', marginBottom: '16px' }}>✉️</div>
+          <h2 style={{ color: '#333', margin: '0 0 12px' }}>Verifique seu email</h2>
+          <p style={{ color: '#555', lineHeight: 1.6, marginBottom: '24px' }}>
+            Enviamos um link de confirmação para <strong>{user?.email}</strong>.<br />
+            Clique no link para ativar sua conta e acessar o painel.
+          </p>
+          <div style={{ background: '#f0f9f0', border: '1px solid #a5d6a7', borderRadius: '10px', padding: '14px', marginBottom: '24px', fontSize: '14px', color: '#2e7d32' }}>
+            💡 Enquanto isso, você já pode explorar o painel. A confirmação de email não bloqueia o acesso.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <Btn onClick={() => setScreen('admin')} style={{ width: '100%' }}>Ir para o painel →</Btn>
+            <button onClick={resendConfirmation} style={{ background: 'none', border: '1px solid #ddd', color: '#667eea', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>
+              Reenviar email de confirmação
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── ESQUECEU A SENHA ─────────────────────────────────────────────────────────
+  if (screen === 'forgot-password') {
+    const handleForgot = async (e) => {
+      e.preventDefault(); setLoading(true);
+      try {
+        await apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: e.target.email.value.trim() }) });
+        showAlert('Se o email estiver cadastrado, você receberá um link em breve.', 'success');
+        setTimeout(() => setScreen('login'), 3000);
+      } catch { showAlert('Erro ao processar. Tente novamente.'); }
+      finally { setLoading(false); }
+    };
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', maxWidth: '400px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '8px' }}>🔑</div>
+            <h1 style={{ margin: '0 0 6px', fontSize: '22px', color: '#333' }}>Recuperar senha</h1>
+            <p style={{ margin: 0, fontSize: '14px', color: '#999' }}>Informe seu email para receber o link</p>
+          </div>
+          <Alert msg={alert.msg} type={alert.type} />
+          <form onSubmit={handleForgot}>
+            <Input label="Email cadastrado" id="email" name="email" type="email" required placeholder="seu@email.com" />
+            <Btn type="submit" disabled={loading} style={{ width: '100%' }}>{loading ? 'Enviando...' : 'Enviar link de recuperação'}</Btn>
+          </form>
+          <div style={{ textAlign: 'center', marginTop: '20px' }}>
+            <button onClick={() => setScreen('login')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px' }}>← Voltar ao login</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── REDEFINIR SENHA ──────────────────────────────────────────────────────────
+  if (screen === 'reset-password') {
+    const handleReset = async (e) => {
+      e.preventDefault(); setLoading(true);
+      const pw = e.target.password.value;
+      const pw2 = e.target.password2.value;
+      if (pw !== pw2) { showAlert('As senhas não coincidem'); setLoading(false); return; }
+      try {
+        await apiFetch('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token: initResetTk, password: pw }) });
+        showAlert('Senha redefinida com sucesso! Faça login com a nova senha.', 'success');
+        window.history.replaceState({}, '', window.location.pathname);
+        setTimeout(() => setScreen('login'), 2500);
+      } catch (err) { showAlert(err.message || 'Link inválido ou expirado.'); }
+      finally { setLoading(false); }
+    };
+    return (
+      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', maxWidth: '400px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '8px' }}>🔒</div>
+            <h1 style={{ margin: '0 0 6px', fontSize: '22px', color: '#333' }}>Nova senha</h1>
+            <p style={{ margin: 0, fontSize: '14px', color: '#999' }}>Escolha uma senha forte</p>
+          </div>
+          <Alert msg={alert.msg} type={alert.type} />
+          {!initResetTk ? (
+            <div style={{ textAlign: 'center', color: '#c62828' }}>
+              <p>Link inválido. <button onClick={() => setScreen('forgot-password')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer' }}>Solicite um novo</button>.</p>
+            </div>
+          ) : (
+            <form onSubmit={handleReset}>
+              <Input label="Nova senha (mínimo 8 caracteres)" name="password" type="password" required minLength={8} placeholder="••••••••" />
+              <Input label="Confirmar nova senha" name="password2" type="password" required minLength={8} placeholder="••••••••" />
+              <Btn type="submit" disabled={loading} style={{ width: '100%' }}>{loading ? 'Salvando...' : 'Salvar nova senha'}</Btn>
+            </form>
+          )}
+          <div style={{ textAlign: 'center', marginTop: '20px' }}>
+            <button onClick={() => setScreen('login')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '14px' }}>← Voltar ao login</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── LOGIN ───────────────────────────────────────────────────────────────────
   if (screen === 'login') {
     const handleLogin = async (e) => {
@@ -439,6 +613,7 @@ export default function App() {
         });
         if (data.token) authToken = data.token;
         setUser(data.user);
+        setEmailConfirmed(data.user.email_confirmed ?? null);
         setScreen(data.user.role === 'vendor' ? 'admin' : 'menu');
       } catch (err) { showAlert(err.message || 'Email ou senha incorretos'); }
       finally { setLoading(false); }
@@ -454,6 +629,9 @@ export default function App() {
           <form onSubmit={handleLogin}>
             <Input label="Email" id="email" name="email" type="email" required placeholder="seu@email.com" />
             <Input label="Senha" id="password" name="password" type="password" required placeholder="••••••••" />
+            <div style={{ textAlign: 'right', marginBottom: '16px', marginTop: '-8px' }}>
+              <button type="button" onClick={() => setScreen('forgot-password')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '13px' }}>Esqueceu a senha?</button>
+            </div>
             <Btn type="submit" disabled={loading} style={{ width: '100%' }}>{loading ? 'Entrando...' : 'Entrar'}</Btn>
           </form>
           {vendorSlug && (
@@ -1164,7 +1342,11 @@ export default function App() {
     );
   }
 
-  const adminHeaderProps = { user, vendorSettings, planStatus, showAlert, onLogout: logout, onNavigate: (s) => { setScreen(s); if (s === 'commissions-admin') fetchCommissions(); if (s === 'products-admin') fetchAdminProducts(); if (s === 'messages-admin') fetchConversations(); } };
+  const adminHeaderProps = {
+    user, vendorSettings, planStatus, showAlert, emailConfirmed, onResendConfirmation: resendConfirmation,
+    onLogout: logout,
+    onNavigate: (s) => { setScreen(s); if (s === 'commissions-admin') fetchCommissions(); if (s === 'products-admin') fetchAdminProducts(); if (s === 'messages-admin') fetchConversations(); },
+  };
 
   // ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
   if (screen === 'admin') {
@@ -2038,7 +2220,8 @@ export default function App() {
         });
         if (data.token) authToken = data.token;
         setUser(data.vendor);
-        setScreen('admin');
+        setEmailConfirmed(false);
+        setScreen('verify-email-pending');
       } catch (err) { showAlert(err.message || 'Erro ao criar conta'); }
       finally { setLoading(false); }
     };

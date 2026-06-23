@@ -10,6 +10,8 @@ const bcrypt       = require('bcryptjs');
 const dotenv       = require('dotenv');
 const cookieParser = require('cookie-parser');
 const https        = require('https');
+const crypto       = require('crypto');
+const nodemailer   = require('nodemailer');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
 if (!globalThis.WebSocket) globalThis.WebSocket = ws;
@@ -187,8 +189,39 @@ const COOKIE_OPTS = {
   httpOnly: true,
   sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   secure: process.env.NODE_ENV === 'production',
-  maxAge: 24 * 60 * 60 * 1000, // 24h
+  maxAge: 4 * 60 * 60 * 1000, // 4h (access token)
 };
+
+const REFRESH_COOKIE_OPTS = {
+  httpOnly: true,
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  maxAge: 30 * 24 * 60 * 60 * 1000, // 30 dias (refresh token)
+  path: '/api/auth/refresh',
+};
+
+// ── Email transacional ─────────────────────────
+const emailTransporter = process.env.EMAIL_HOST ? nodemailer.createTransport({
+  host:   process.env.EMAIL_HOST,
+  port:   parseInt(process.env.EMAIL_PORT || '587'),
+  secure: process.env.EMAIL_PORT === '465',
+  auth:   { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+}) : null;
+
+async function sendEmail({ to, subject, html }) {
+  if (!emailTransporter) {
+    console.warn('[email] Transporte não configurado. EMAIL_HOST, EMAIL_USER e EMAIL_PASS são necessários.');
+    return;
+  }
+  try {
+    await emailTransporter.sendMail({
+      from: process.env.EMAIL_FROM || `"Açaí Shop" <${process.env.EMAIL_USER}>`,
+      to, subject, html,
+    });
+  } catch (err) {
+    console.error('[email] Erro ao enviar:', err.message);
+  }
+}
 
 // ============================================
 // MIDDLEWARE DE AUTENTICAÇÃO
@@ -201,7 +234,7 @@ const auth = (req, res, next) => {
     req.token = token;
     next();
   } catch {
-    res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
+    res.status(401).json({ error: 'Sessão expirada. Faça login novamente.', code: 'TOKEN_EXPIRED' });
   }
 };
 
@@ -697,9 +730,17 @@ app.post('/api/auth/register-vendor', async (req, res) => {
     }
     if (attempt >= 10) slug = `${baseSlug}-${Date.now().toString(36)}`;
 
+    // Gerar token de confirmação de email
+    const confirmToken   = crypto.randomBytes(32).toString('hex');
+    const confirmExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
     const { data: vendor, error } = await supabase
       .from('vendors')
-      .insert({ email, password: hashed, name, phone, address, cpf, slug })
+      .insert({
+        email, password: hashed, name, phone, address, cpf, slug,
+        email_confirm_token:   confirmToken,
+        email_confirm_expires: confirmExpires.toISOString(),
+      })
       .select('id, email, name, role, slug')
       .single();
 
@@ -708,10 +749,25 @@ app.post('/api/auth/register-vendor', async (req, res) => {
     const token = jwt.sign(
       { id: vendor.id, email: vendor.email, role: vendor.role },
       JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '4h' }
+    );
+    const refreshToken = jwt.sign(
+      { id: vendor.id },
+      JWT_SECRET + '_refresh',
+      { expiresIn: '30d' }
     );
 
     res.cookie('token', token, COOKIE_OPTS);
+    res.cookie('refresh_token', refreshToken, REFRESH_COOKIE_OPTS);
+
+    // Enviar email de confirmação (não bloqueia a resposta)
+    const confirmUrl = `${FRONTEND_URL}?confirm_email=${confirmToken}`;
+    sendEmail({
+      to:      vendor.email,
+      subject: '✉️ Confirme seu email — Açaí Shop',
+      html:    emailConfirmHtml(vendor.name, confirmUrl),
+    }).catch(() => {});
+
     res.status(201).json({ message: 'Vendor registrado com sucesso', vendor, token });
   } catch {
     res.status(500).json({ error: 'Erro interno ao registrar' });
@@ -729,7 +785,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const { data: user, error } = await supabase
       .from('vendors')
-      .select('id, email, name, role, status, password')
+      .select('id, email, name, role, status, password, email_confirmed')
       .eq('email', email.toLowerCase())
       .maybeSingle();
 
@@ -743,13 +799,19 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '4h' }
+    );
+    const refreshToken = jwt.sign(
+      { id: user.id },
+      JWT_SECRET + '_refresh',
+      { expiresIn: '30d' }
     );
 
     res.cookie('token', token, COOKIE_OPTS);
+    res.cookie('refresh_token', refreshToken, REFRESH_COOKIE_OPTS);
     res.json({
       message: 'Login bem-sucedido',
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role, email_confirmed: user.email_confirmed },
       token,
     });
   } catch {
@@ -762,8 +824,231 @@ app.post('/api/auth/login', async (req, res) => {
 // ============================================
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('token', { ...COOKIE_OPTS, maxAge: 0 });
+  res.clearCookie('refresh_token', { ...REFRESH_COOKIE_OPTS, maxAge: 0 });
   res.json({ message: 'Logout realizado' });
 });
+
+// ============================================
+// AUTH: REFRESH TOKEN
+// ============================================
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refresh_token;
+    if (!refreshToken) return res.status(401).json({ error: 'Refresh token ausente', code: 'NO_REFRESH' });
+
+    let payload;
+    try {
+      payload = jwt.verify(refreshToken, JWT_SECRET + '_refresh');
+    } catch {
+      return res.status(401).json({ error: 'Refresh token inválido ou expirado', code: 'REFRESH_EXPIRED' });
+    }
+
+    // Buscar usuário para confirmar que ainda existe e está ativo
+    const { data: vendor, error } = await supabase
+      .from('vendors')
+      .select('id, email, name, role, status')
+      .eq('id', payload.id)
+      .single();
+
+    if (error || !vendor || vendor.status !== 'active') {
+      return res.status(401).json({ error: 'Usuário não encontrado ou inativo', code: 'USER_INACTIVE' });
+    }
+
+    const newToken = jwt.sign(
+      { id: vendor.id, email: vendor.email, role: vendor.role },
+      JWT_SECRET,
+      { expiresIn: '4h' }
+    );
+    const newRefresh = jwt.sign(
+      { id: vendor.id },
+      JWT_SECRET + '_refresh',
+      { expiresIn: '30d' }
+    );
+
+    res.cookie('token', newToken, COOKIE_OPTS);
+    res.cookie('refresh_token', newRefresh, REFRESH_COOKIE_OPTS);
+    res.json({ token: newToken });
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// AUTH: CONFIRMAR EMAIL
+// ============================================
+app.post('/api/auth/confirm-email', async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token obrigatório' });
+
+    const { data: vendor, error } = await supabase
+      .from('vendors')
+      .select('id, email, email_confirmed, email_confirm_expires')
+      .eq('email_confirm_token', token)
+      .maybeSingle();
+
+    if (error || !vendor) return res.status(400).json({ error: 'Token inválido ou expirado' });
+    if (vendor.email_confirmed) return res.json({ message: 'Email já confirmado' });
+    if (vendor.email_confirm_expires && new Date() > new Date(vendor.email_confirm_expires)) {
+      return res.status(400).json({ error: 'Token expirado. Solicite um novo link.' });
+    }
+
+    await supabase.from('vendors').update({
+      email_confirmed: true,
+      email_confirm_token: null,
+      email_confirm_expires: null,
+    }).eq('id', vendor.id);
+
+    res.json({ message: 'Email confirmado com sucesso!' });
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// AUTH: REENVIAR CONFIRMAÇÃO DE EMAIL
+// ============================================
+app.post('/api/auth/resend-confirmation', authLimiter, auth, async (req, res) => {
+  try {
+    const { data: vendor } = await supabase
+      .from('vendors')
+      .select('email, name, email_confirmed')
+      .eq('id', req.user.id)
+      .single();
+
+    if (!vendor) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (vendor.email_confirmed) return res.json({ message: 'Email já confirmado' });
+
+    const confirmToken   = crypto.randomBytes(32).toString('hex');
+    const confirmExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
+    await supabase.from('vendors').update({
+      email_confirm_token:   confirmToken,
+      email_confirm_expires: confirmExpires.toISOString(),
+    }).eq('id', req.user.id);
+
+    const confirmUrl = `${FRONTEND_URL}?confirm_email=${confirmToken}`;
+    await sendEmail({
+      to:      vendor.email,
+      subject: '✉️ Confirme seu email — Açaí Shop',
+      html:    emailConfirmHtml(vendor.name, confirmUrl),
+    });
+
+    res.json({ message: 'Email de confirmação reenviado' });
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// AUTH: ESQUECEU A SENHA
+// ============================================
+app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
+  // Sempre retornar 200 para não vazar quais emails existem
+  try {
+    const { email } = req.body;
+    if (!email || !isValidEmail(email)) {
+      return res.json({ message: 'Se o email estiver cadastrado, você receberá um link em breve.' });
+    }
+
+    const { data: vendor } = await supabase
+      .from('vendors')
+      .select('id, name, email')
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+
+    if (vendor) {
+      const resetToken   = crypto.randomBytes(32).toString('hex');
+      const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1h
+
+      await supabase.from('vendors').update({
+        password_reset_token:   resetToken,
+        password_reset_expires: resetExpires.toISOString(),
+      }).eq('id', vendor.id);
+
+      const resetUrl = `${FRONTEND_URL}?reset_password=${resetToken}`;
+      await sendEmail({
+        to:      vendor.email,
+        subject: '🔑 Redefinir senha — Açaí Shop',
+        html:    passwordResetHtml(vendor.name, resetUrl),
+      });
+    }
+
+    res.json({ message: 'Se o email estiver cadastrado, você receberá um link em breve.' });
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ============================================
+// AUTH: REDEFINIR SENHA
+// ============================================
+app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'Token e nova senha obrigatórios' });
+    if (password.length < 8) return res.status(400).json({ error: 'Senha deve ter mínimo 8 caracteres' });
+
+    const { data: vendor, error } = await supabase
+      .from('vendors')
+      .select('id, password_reset_expires')
+      .eq('password_reset_token', token)
+      .maybeSingle();
+
+    if (error || !vendor) return res.status(400).json({ error: 'Token inválido ou expirado' });
+    if (vendor.password_reset_expires && new Date() > new Date(vendor.password_reset_expires)) {
+      return res.status(400).json({ error: 'Link expirado. Solicite um novo.' });
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+    await supabase.from('vendors').update({
+      password:               hashed,
+      password_reset_token:   null,
+      password_reset_expires: null,
+    }).eq('id', vendor.id);
+
+    res.json({ message: 'Senha redefinida com sucesso!' });
+  } catch {
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ── Templates de email ─────────────────────────────────────────
+function emailConfirmHtml(name, url) {
+  return `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px">
+      <div style="text-align:center;margin-bottom:24px">
+        <span style="font-size:48px">🫐</span>
+        <h1 style="color:#667eea;margin:8px 0 4px">Açaí Shop</h1>
+      </div>
+      <h2 style="color:#333">Olá, ${name}! Confirme seu email</h2>
+      <p style="color:#555;line-height:1.6">Clique no botão abaixo para confirmar seu endereço de email e ativar sua conta:</p>
+      <div style="text-align:center;margin:32px 0">
+        <a href="${url}" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">✉️ Confirmar meu email</a>
+      </div>
+      <p style="color:#999;font-size:13px">Este link expira em 24 horas. Se você não criou uma conta no Açaí Shop, ignore este email.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+      <p style="color:#bbb;font-size:12px;text-align:center">© Açaí Shop · <a href="${FRONTEND_URL}" style="color:#bbb">app-acai-omega.vercel.app</a></p>
+    </div>`;
+}
+
+function passwordResetHtml(name, url) {
+  return `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px">
+      <div style="text-align:center;margin-bottom:24px">
+        <span style="font-size:48px">🫐</span>
+        <h1 style="color:#667eea;margin:8px 0 4px">Açaí Shop</h1>
+      </div>
+      <h2 style="color:#333">Olá, ${name}! Redefinição de senha</h2>
+      <p style="color:#555;line-height:1.6">Recebemos uma solicitação para redefinir a senha da sua conta. Clique abaixo para criar uma nova senha:</p>
+      <div style="text-align:center;margin:32px 0">
+        <a href="${url}" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">🔑 Redefinir minha senha</a>
+      </div>
+      <p style="color:#999;font-size:13px">Este link expira em <strong>1 hora</strong>. Se você não solicitou a redefinição de senha, ignore este email — sua senha não será alterada.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+      <p style="color:#bbb;font-size:12px;text-align:center">© Açaí Shop · <a href="${FRONTEND_URL}" style="color:#bbb">app-acai-omega.vercel.app</a></p>
+    </div>`;
+}
 
 // ============================================
 // PRODUTOS: LISTAR (público — filtrado por loja)
