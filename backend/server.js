@@ -547,7 +547,7 @@ app.get('/api/store/:slug', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('vendors')
-      .select('name, slug, deliveries_enabled, delivery_fee, pix_key, logo_url')
+      .select('name, slug, deliveries_enabled, delivery_fee, pix_key, logo_url, categories')
       .eq('slug', req.params.slug)
       .eq('status', 'active')
       .single();
@@ -1295,12 +1295,11 @@ app.post('/api/orders', async (req, res) => {
     // Notificação WhatsApp automática ao cliente (usando credenciais do vendor)
     if (customer.phone) {
       const trackingUrl = `${FRONTEND_URL}?loja=${vendor.slug}&pedido=${order.id}`;
-      const isPix = String(customer_notes || '').toUpperCase().includes('PIX');
       const { data: vCreds } = await supabase
         .from('vendors').select('zapi_instance_id, zapi_token, zapi_client_token').eq('id', vendor.id).single();
       sendWhatsApp(customer.phone, waMsgNovoPedido(
         customer.name, vendor.name, order.order_number, order.total,
-        delivery_type, trackingUrl, isPix ? vendor.pix_key : null
+        delivery_type, trackingUrl, vendor.pix_key || null
       ), { instanceId: vCreds?.zapi_instance_id, token: vCreds?.zapi_token, clientToken: vCreds?.zapi_client_token })
         .catch(() => {});
     }
@@ -1636,7 +1635,7 @@ app.get('/api/vendors/settings', auth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('vendors')
-      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token')
+      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token, categories')
       .eq('id', req.user.id).single();
     if (error) return sbErr(error, res);
     res.json(data);
@@ -1647,7 +1646,7 @@ app.get('/api/vendors/settings', auth, async (req, res) => {
 
 app.patch('/api/vendors/settings', auth, async (req, res) => {
   try {
-    const allowed = ['deliveries_enabled', 'slug', 'delivery_fee', 'pix_key', 'zapi_instance_id', 'zapi_token', 'zapi_client_token'];
+    const allowed = ['deliveries_enabled', 'slug', 'delivery_fee', 'pix_key', 'zapi_instance_id', 'zapi_token', 'zapi_client_token', 'categories'];
     const updates = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
 
     if (updates.slug !== undefined) {
@@ -1668,9 +1667,19 @@ app.patch('/api/vendors/settings', auth, async (req, res) => {
       updates.pix_key = typeof updates.pix_key === 'string' ? updates.pix_key.trim() || null : null;
     }
 
+    if (updates.categories !== undefined) {
+      if (!Array.isArray(updates.categories)) return res.status(400).json({ error: 'Categorias inválidas' });
+      updates.categories = updates.categories.map(c => ({
+        id: String(c.id || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 40) || null,
+        label: String(c.label || '').trim().slice(0, 60),
+        emoji: String(c.emoji || '').trim().slice(0, 8),
+        enabled: c.enabled !== false,
+      })).filter(c => c.id && c.label);
+    }
+
     const { data, error } = await supabase
       .from('vendors').update(updates).eq('id', req.user.id)
-      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token').single();
+      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token, categories').single();
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {

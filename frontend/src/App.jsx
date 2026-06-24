@@ -151,29 +151,29 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
         <button onClick={onResendConfirmation} style={{ background: 'none', border: '1px solid #f57f17', color: '#f57f17', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Reenviar</button>
       </div>
     )}
-      <div style={{ padding: '16px 20px' }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-        <h1 style={{ margin: 0, fontSize: '20px', color: '#667eea' }}>🫐 {user?.name || 'Admin'}</h1>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ padding: '12px 16px' }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0, fontSize: '18px', color: '#667eea', whiteSpace: 'nowrap' }}>🫐 {user?.name || 'Admin'}</h1>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', overflowX: 'auto', flexShrink: 1, paddingBottom: '2px', WebkitOverflowScrolling: 'touch' }}>
           {[['admin','📊 Dashboard'],['orders-admin','📦 Pedidos'],['products-admin','🛍️ Produtos'],['deliverers-admin','🚴 Entregadores'],['commissions-admin','💰 Comissões'],['messages-admin','💬 Mensagens']].map(([s, label]) => (
             <button key={s} onClick={() => onNavigate(s)} style={{
               background: active === s ? '#f0e7ff' : 'none', border: 'none', color: '#667eea',
-              cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', padding: '7px 12px', borderRadius: '6px'
+              cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', padding: '7px 10px', borderRadius: '6px', whiteSpace: 'nowrap', flexShrink: 0
             }}>{label}</button>
           ))}
           <button onClick={() => {
             const slug = vendorSettings?.slug;
             if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
             else showAlert('Configure o link da loja primeiro (aba Entregadores → Link da Loja)', 'error');
-          }} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px' }}>🔗 Ver Cardápio</button>
-          <button onClick={() => onNavigate('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
+          }} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 10px', borderRadius: '6px', fontSize: '13px', whiteSpace: 'nowrap', flexShrink: 0 }}>🔗 Ver Cardápio</button>
+          <button onClick={() => onNavigate('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '7px 10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap', flexShrink: 0 }}>
             {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active'
               ? '✓ Plano Ativo'
               : planStatus?.plan === 'trial'
                 ? `⏳ Trial: ${planStatus.trial_days_left ?? '?'}d`
                 : '⚠️ Planos'}
           </button>
-          <button onClick={onLogout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '7px 12px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 'bold' }}>
+          <button onClick={onLogout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '7px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap', flexShrink: 0 }}>
             <LogOut size={14} /> Sair
           </button>
         </div>
@@ -205,7 +205,13 @@ export default function App() {
   const [plans, setPlans]             = useState([]);
   const [planStatus, setPlanStatus]   = useState(null);
   const [stripeTestMode, setStripeTestMode] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState('base');
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const DEFAULT_CATEGORIES = [
+    { id: 'base', label: 'Açaís', emoji: '🫐', enabled: true },
+    { id: 'bebidas', label: 'Bebidas', emoji: '🥤', enabled: true },
+    { id: 'adicionais', label: 'Adicionais', emoji: '➕', enabled: true },
+  ];
+  const getCategories = (raw) => (Array.isArray(raw) && raw.length ? raw : DEFAULT_CATEGORIES);
   const [loading, setLoading]         = useState(false);
   const [alert, setAlert]             = useState({ msg: '', type: '' });
   const [lastOrder, setLastOrder]     = useState(null);
@@ -713,16 +719,22 @@ export default function App() {
           </div>
         </div>
         <div style={{ background: '#fff', borderBottom: '1px solid #eee', padding: '12px 20px' }}>
-          <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', gap: '10px', overflowX: 'auto' }}>
-            {[['base', '🫐 Açaís'], ['bebidas', '🥤 Bebidas'], ['adicionais', '➕ Adicionais']].map(([cat, label]) => (
-              <button key={cat} onClick={() => setSelectedCategory(cat)} style={{
-                padding: '8px 20px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', whiteSpace: 'nowrap',
-                border: selectedCategory === cat ? '2px solid #667eea' : '1px solid #ddd',
-                background: selectedCategory === cat ? '#f0e7ff' : '#fff',
-                color: selectedCategory === cat ? '#667eea' : '#666',
-              }}>{label}</button>
-            ))}
-          </div>
+          {(() => {
+            const enabledCats = getCategories(storeInfo?.categories).filter(c => c.enabled !== false);
+            const activeCat = selectedCategory ?? enabledCats[0]?.id;
+            return (
+              <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '4px' }}>
+                {enabledCats.map(cat => (
+                  <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} style={{
+                    padding: '8px 20px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0,
+                    border: activeCat === cat.id ? '2px solid #667eea' : '1px solid #ddd',
+                    background: activeCat === cat.id ? '#f0e7ff' : '#fff',
+                    color: activeCat === cat.id ? '#667eea' : '#666',
+                  }}>{cat.emoji} {cat.label}</button>
+                ))}
+              </div>
+            );
+          })()}
         </div>
         {alert.msg && (
           <div style={{ maxWidth: '1200px', margin: '16px auto 0', padding: '0 20px' }}>
@@ -730,14 +742,17 @@ export default function App() {
           </div>
         )}
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px 20px' }}>
-          {products.filter(p => p.category === selectedCategory && p.available !== false).length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>🫐</div>
-              <p>Carregando produtos...</p>
-            </div>
-          ) : (
+          {(() => {
+            const activeCat = selectedCategory ?? getCategories(storeInfo?.categories).filter(c => c.enabled !== false)[0]?.id;
+            const visibleProducts = products.filter(p => p.category === activeCat && p.available !== false);
+            return visibleProducts.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🫐</div>
+                <p>Nenhum produto nesta categoria.</p>
+              </div>
+            ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px' }}>
-              {products.filter(p => p.category === selectedCategory && p.available !== false).map(product => (
+              {visibleProducts.map(product => (
                 <div key={product.id} style={{ background: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
                   <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                     {product.image_url
@@ -755,7 +770,8 @@ export default function App() {
                 </div>
               ))}
             </div>
-          )}
+            );
+          })()}
         </div>
         {totalItems > 0 && (
           <div onClick={() => setScreen('cart')} style={{
@@ -902,7 +918,7 @@ export default function App() {
               </div>
             </div>
             <h3 style={{ color: '#555', fontSize: '15px', marginBottom: '12px' }}>Como quer receber?</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px', marginBottom: '20px' }}>
               <button type="button" onClick={() => setCheckoutDeliveryType('retirada')} style={{ background: checkoutDeliveryType === 'retirada' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#f5f5f5', color: checkoutDeliveryType === 'retirada' ? '#fff' : '#555', border: checkoutDeliveryType === 'retirada' ? 'none' : '2px solid #ddd', padding: '16px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', textAlign: 'center' }}>
                 🕐 Retirada<br /><span style={{ fontWeight: 'normal', fontSize: '13px', opacity: 0.85 }}>20–25 min • Grátis</span>
               </button>
@@ -1581,7 +1597,7 @@ export default function App() {
                   {editingFeeId === order.id && (
                     <div style={{ background: '#f0f4ff', borderRadius: '10px', padding: '14px 16px', marginBottom: '12px' }}>
                       <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '10px', color: '#333' }}>✏️ Ajustar valor do pedido</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '10px', marginBottom: '10px' }}>
                         <div>
                           <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px', fontWeight: '600' }}>Taxa de entrega (R$)</label>
                           <input type="number" step="0.01" min="0" value={editingFeeVal} onChange={e => setEditingFeeVal(e.target.value)} style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }} />
@@ -1723,13 +1739,13 @@ export default function App() {
             <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
               <h3 style={{ marginTop: 0 }}>{editingProduct ? 'Editar Produto' : 'Novo Produto'}</h3>
               <form onSubmit={saveProduct}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '16px' }}>
                   <Input label="Nome *" value={productForm.name} onChange={e => setProductForm(f => ({...f, name: e.target.value}))} required placeholder="Açaí Tradicional" />
                   <Input label="Preço *" type="number" step="0.01" value={productForm.price} onChange={e => setProductForm(f => ({...f, price: e.target.value}))} required placeholder="24.90" />
                   <Select label="Categoria *" value={productForm.category} onChange={e => setProductForm(f => ({...f, category: e.target.value}))}>
-                    <option value="base">🫐 Açaís</option>
-                    <option value="bebidas">🥤 Bebidas</option>
-                    <option value="adicionais">➕ Adicionais</option>
+                    {getCategories(vendorSettings?.categories).map(c => (
+                      <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>
+                    ))}
                   </Select>
                   <Input label="Emoji" value={productForm.emoji} onChange={e => setProductForm(f => ({...f, emoji: e.target.value}))} placeholder="🫐" />
                 </div>
@@ -1768,30 +1784,29 @@ export default function App() {
             </div>
           )}
 
-          {['base','bebidas','adicionais'].map(cat => {
-            const catProducts = products.filter(p => p.category === cat);
+          {getCategories(vendorSettings?.categories).map(cat => {
+            const catProducts = products.filter(p => p.category === cat.id);
             if (!catProducts.length) return null;
-            const catLabels = { base: '🫐 Açaís', bebidas: '🥤 Bebidas', adicionais: '➕ Adicionais' };
             return (
-              <div key={cat} style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-                <h3 style={{ marginTop: 0, marginBottom: '16px', color: '#667eea' }}>{catLabels[cat]}</h3>
+              <div key={cat.id} style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', opacity: cat.enabled === false ? 0.6 : 1 }}>
+                <h3 style={{ marginTop: 0, marginBottom: '16px', color: '#667eea' }}>{cat.emoji} {cat.label}{cat.enabled === false ? ' (desativada)' : ''}</h3>
                 <div style={{ display: 'grid', gap: '10px' }}>
                   {catProducts.map(p => (
-                    <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: '#f9f9f9', borderRadius: '8px', opacity: p.available === false ? 0.6 : 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div key={p.id} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '12px', background: '#f9f9f9', borderRadius: '8px', opacity: p.available === false ? 0.6 : 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '160px' }}>
                         <span style={{ fontSize: '28px' }}>{p.icon}</span>
                         <div>
                           <div style={{ fontWeight: 'bold', color: '#333' }}>{p.name}</div>
                           <div style={{ fontSize: '13px', color: '#999' }}>{p.description}</div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 'bold', color: '#667eea', fontSize: '16px' }}>R$ {Number(p.price).toFixed(2)}</span>
-                        <button onClick={() => toggleAvailable(p)} style={{ background: p.available !== false ? '#e8f5e9' : '#ffebee', color: p.available !== false ? '#2e7d32' : '#c62828', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                        <button onClick={() => toggleAvailable(p)} style={{ background: p.available !== false ? '#e8f5e9' : '#ffebee', color: p.available !== false ? '#2e7d32' : '#c62828', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
                           {p.available !== false ? '✓ Ativo' : '✗ Pausado'}
                         </button>
-                        <button onClick={() => openEdit(p)} style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>✏️ Editar</button>
-                        <button onClick={() => deleteProduct(p.id)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>🗑️ Remover</button>
+                        <button onClick={() => openEdit(p)} style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>✏️ Editar</button>
+                        <button onClick={() => deleteProduct(p.id)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>🗑️</button>
                       </div>
                     </div>
                   ))}
@@ -2014,7 +2029,7 @@ export default function App() {
               Suas credenciais Z-API para envio de notificações e recebimento de mensagens.{' '}
               <span style={{ color: '#667eea' }}>Webhook URL: <strong>{`${process.env.REACT_APP_API_URL || ''}/webhooks/whatsapp?vendor_id=SEU_ID&secret=ZAPI_WEBHOOK_SECRET`}</strong></span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px', fontWeight: '600' }}>Instance ID</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -2056,6 +2071,67 @@ export default function App() {
             </div>
           </div>
 
+          {/* Gerenciar Categorias */}
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ fontWeight: 'bold', fontSize: '16px' }}>🏷️ Categorias do Cardápio</div>
+              <button
+                onClick={async () => {
+                  const name = window.prompt('Nome da nova categoria:');
+                  if (!name?.trim()) return;
+                  const emoji = window.prompt('Emoji da categoria (ex: 🍦):', '🍦') || '🍦';
+                  const id = name.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40);
+                  if (!id) { showAlert('Nome inválido'); return; }
+                  const existing = getCategories(vendorSettings?.categories);
+                  if (existing.find(c => c.id === id)) { showAlert('Já existe uma categoria com esse nome'); return; }
+                  const updated = [...existing, { id, label: name.trim(), emoji: emoji.trim() || '🍦', enabled: true }];
+                  try {
+                    const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ categories: updated }) });
+                    setVendorSettings(prev => ({ ...prev, ...data }));
+                    showAlert('Categoria adicionada!', 'success');
+                  } catch (err) { showAlert(err.message || 'Erro'); }
+                }}
+                style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+              >+ Nova Categoria</button>
+            </div>
+            <div style={{ display: 'grid', gap: '8px' }}>
+              {getCategories(vendorSettings?.categories).map((cat, idx, arr) => (
+                <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: '#f9f9f9', borderRadius: '8px', opacity: cat.enabled === false ? 0.6 : 1 }}>
+                  <span style={{ fontSize: '22px' }}>{cat.emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{cat.label}</div>
+                    <div style={{ fontSize: '12px', color: '#999' }}>id: {cat.id}</div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const newLabel = window.prompt('Novo nome:', cat.label);
+                      if (!newLabel?.trim()) return;
+                      const newEmoji = window.prompt('Novo emoji:', cat.emoji) || cat.emoji;
+                      const updated = arr.map((c, i) => i === idx ? { ...c, label: newLabel.trim(), emoji: newEmoji.trim() || c.emoji } : c);
+                      try {
+                        const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ categories: updated }) });
+                        setVendorSettings(prev => ({ ...prev, ...data }));
+                        showAlert('Categoria atualizada!', 'success');
+                      } catch (err) { showAlert(err.message || 'Erro'); }
+                    }}
+                    style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                  >✏️ Editar</button>
+                  <button
+                    onClick={async () => {
+                      const updated = arr.map((c, i) => i === idx ? { ...c, enabled: c.enabled === false } : c);
+                      try {
+                        const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ categories: updated }) });
+                        setVendorSettings(prev => ({ ...prev, ...data }));
+                        showAlert(cat.enabled === false ? 'Categoria ativada!' : 'Categoria desativada!', 'success');
+                      } catch (err) { showAlert(err.message || 'Erro'); }
+                    }}
+                    style={{ background: cat.enabled === false ? '#e8f5e9' : '#ffebee', color: cat.enabled === false ? '#2e7d32' : '#c62828', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                  >{cat.enabled === false ? '✓ Ativar' : '✗ Desativar'}</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h2 style={{ margin: 0 }}>🚴 Entregadores</h2>
             <Btn onClick={openNew}>+ Novo Entregador</Btn>
@@ -2065,7 +2141,7 @@ export default function App() {
             <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
               <h3 style={{ marginTop: 0 }}>{editingDel ? 'Editar Entregador' : 'Novo Entregador'}</h3>
               <form onSubmit={saveDel}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '16px' }}>
                   <Input label="Nome *" value={delivererForm.name} onChange={e => setDelivererForm(f => ({...f, name: e.target.value}))} required placeholder="João da Silva" />
                   <Input label="Telefone *" value={delivererForm.phone} onChange={e => setDelivererForm(f => ({...f, phone: e.target.value}))} required placeholder="(11) 99999-0000" />
                   <Input label="CPF" value={delivererForm.cpf} onChange={e => setDelivererForm(f => ({...f, cpf: e.target.value}))} placeholder="000.000.000-00" />
@@ -2293,7 +2369,7 @@ export default function App() {
             <Input label="Nome da loja / Responsável *" id="name" name="name" required placeholder="Açaí do João" />
             <Input label="Email *" id="email" name="email" type="email" required placeholder="joao@email.com" />
             <Input label="Senha * (mínimo 8 caracteres)" id="password" name="password" type="password" required placeholder="••••••••" minLength={8} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
               <Input label="Telefone *" id="phone" name="phone" type="tel" required placeholder="(11) 99999-0000" />
               <Input label="CPF *" id="cpf" name="cpf" required placeholder="000.000.000-00" />
             </div>
