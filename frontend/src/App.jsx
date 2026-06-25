@@ -145,39 +145,47 @@ const isInStandaloneMode = () => window.matchMedia('(display-mode: standalone)')
 function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onLogout, showAlert, emailConfirmed, onResendConfirmation }) {
   return (
     <div style={{ background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
-    {emailConfirmed === false && (
-      <div style={{ background: '#fff8e1', borderBottom: '1px solid #ffe082', padding: '8px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', fontSize: '13px', color: '#f57f17' }}>
-        ✉️ <strong>Confirme seu email</strong> — acesse sua caixa de entrada e clique no link que enviamos para {user?.email}.
-        <button onClick={onResendConfirmation} style={{ background: 'none', border: '1px solid #f57f17', color: '#f57f17', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Reenviar</button>
-      </div>
-    )}
-      <div style={{ padding: '12px 16px' }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0, fontSize: '18px', color: '#667eea', whiteSpace: 'nowrap' }}>🫐 {user?.name || 'Admin'}</h1>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', overflowX: 'auto', flexShrink: 1, paddingBottom: '2px', WebkitOverflowScrolling: 'touch' }}>
-          {[['admin','📊 Dashboard'],['orders-admin','📦 Pedidos'],['products-admin','🛍️ Produtos'],['deliverers-admin','🚴 Entregadores'],['commissions-admin','💰 Comissões'],['messages-admin','💬 Mensagens']].map(([s, label]) => (
-            <button key={s} onClick={() => onNavigate(s)} style={{
-              background: active === s ? '#f0e7ff' : 'none', border: 'none', color: '#667eea',
-              cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', padding: '7px 10px', borderRadius: '6px', whiteSpace: 'nowrap', flexShrink: 0
-            }}>{label}</button>
-          ))}
-          <button onClick={() => {
-            const slug = vendorSettings?.slug;
-            if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
-            else showAlert('Configure o link da loja primeiro (aba Entregadores → Link da Loja)', 'error');
-          }} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '7px 10px', borderRadius: '6px', fontSize: '13px', whiteSpace: 'nowrap', flexShrink: 0 }}>🔗 Ver Cardápio</button>
-          <button onClick={() => onNavigate('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '7px 10px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active'
-              ? '✓ Plano Ativo'
-              : planStatus?.plan === 'trial'
-                ? `⏳ Trial: ${planStatus.trial_days_left ?? '?'}d`
-                : '⚠️ Planos'}
-          </button>
-          <button onClick={onLogout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '7px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <LogOut size={14} /> Sair
-          </button>
+      {emailConfirmed === false && (
+        <div style={{ background: '#fff8e1', borderBottom: '1px solid #ffe082', padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', fontSize: '13px', color: '#f57f17', flexWrap: 'wrap', textAlign: 'center' }}>
+          ✉️ <strong>Confirme seu email</strong> — clique no link enviado para {user?.email}.
+          <button onClick={onResendConfirmation} style={{ background: 'none', border: '1px solid #f57f17', color: '#f57f17', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Reenviar</button>
+        </div>
+      )}
+      {/* Linha 1: logo + ações secundárias */}
+      <div style={{ padding: '10px 16px', borderBottom: '1px solid #f0f0f0' }}>
+        <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+          <h1 style={{ margin: 0, fontSize: '17px', color: '#667eea', whiteSpace: 'nowrap' }}>🫐 {user?.name || 'Admin'}</h1>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button onClick={() => {
+              const slug = vendorSettings?.slug;
+              if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
+              else showAlert('Configure o link da loja primeiro (aba Entregadores → Link da Loja)', 'error');
+            }} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', whiteSpace: 'nowrap' }}>🔗 Cardápio</button>
+            <button onClick={() => onNavigate('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+              {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '✓ Plano Ativo' : planStatus?.plan === 'trial' ? `⏳ ${planStatus.trial_days_left ?? '?'}d trial` : '⚠️ Planos'}
+            </button>
+            <button onClick={onLogout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+              <LogOut size={13} /> Sair
+            </button>
+          </div>
         </div>
       </div>
+      {/* Linha 2: tabs de navegação */}
+      <div style={{ padding: '6px 16px 8px', overflowX: 'auto' }}>
+        <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+          {[['admin','📊','Dashboard'],['orders-admin','📦','Pedidos'],['products-admin','🛍️','Produtos'],['deliverers-admin','🚴','Entregadores'],['commissions-admin','💰','Comissões'],['messages-admin','💬','Mensagens']].map(([s, icon, label]) => (
+            <button key={s} onClick={() => onNavigate(s)} style={{
+              background: active === s ? '#667eea' : '#f5f5f5',
+              border: 'none',
+              color: active === s ? '#fff' : '#555',
+              cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+              padding: '8px 14px', borderRadius: '8px', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: '5px',
+            }}>
+              <span>{icon}</span><span>{label}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
