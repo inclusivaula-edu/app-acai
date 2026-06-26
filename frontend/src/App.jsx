@@ -275,6 +275,12 @@ export default function App() {
   const [showDelivererForm, setShowDelivererForm] = useState(false);
   const [editingDel, setEditingDel] = useState(null);
   const [delivererForm, setDelivererForm] = useState({ name: '', phone: '', cpf: '', vehicle: '', commission_rate: '10' });
+  const [editingSlug, setEditingSlug] = useState(false);
+  const [slugInput, setSlugInput] = useState('');
+  const [showNewCatForm, setShowNewCatForm] = useState(false);
+  const [newCatForm, setNewCatForm] = useState({ label: '', emoji: '🍦' });
+  const [editingCatIdx, setEditingCatIdx] = useState(null);
+  const [editCatForm, setEditCatForm] = useState({ label: '', emoji: '' });
 
   // estados mensagens WhatsApp
   const [conversations, setConversations]   = useState([]);
@@ -1964,48 +1970,49 @@ export default function App() {
           {/* Link da Loja */}
           <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
             <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '12px' }}>🔗 Link da sua loja</div>
-            {vendorSettings?.slug ? (
-              <div style={{ background: '#f0e7ff', borderRadius: '8px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                <span style={{ color: '#667eea', fontSize: '14px', fontWeight: 'bold', wordBreak: 'break-all' }}>
+            {!editingSlug && vendorSettings?.slug ? (
+              <div style={{ background: '#f0e7ff', borderRadius: '8px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ color: '#667eea', fontSize: '13px', fontWeight: 'bold', wordBreak: 'break-all', flex: 1 }}>
                   {window.location.origin}{window.location.pathname}?loja={vendorSettings.slug}
                 </span>
                 <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?loja=${vendorSettings.slug}`).then(() => showAlert('Link copiado!', 'success'))}
-                    style={{ background: '#667eea', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
-                  >📋 Copiar</button>
-                  <button
-                    onClick={async () => {
-                      const input = window.prompt('Novo link (letras, números e hífens):', vendorSettings.slug);
-                      if (!input) return;
-                      try {
-                        const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ slug: input }) });
-                        setVendorSettings(prev => ({ ...prev, ...data }));
-                        showAlert('Link atualizado!', 'success');
-                      } catch (err) { showAlert(err.message || 'Erro ao atualizar link'); }
-                    }}
-                    style={{ background: '#f5f5f5', color: '#555', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
-                  >✏️ Alterar</button>
+                  <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?loja=${vendorSettings.slug}`).then(() => showAlert('Link copiado!', 'success'))}
+                    style={{ background: '#667eea', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>📋 Copiar</button>
+                  <button onClick={() => { setSlugInput(vendorSettings.slug); setEditingSlug(true); }}
+                    style={{ background: '#f5f5f5', color: '#555', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>✏️ Alterar</button>
                 </div>
               </div>
-            ) : (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff8e1', borderRadius: '8px', padding: '12px 16px' }}>
-                <span style={{ color: '#f57f17', fontSize: '14px' }}>⚠️ Link não configurado — clientes não conseguem acessar sua loja</span>
-                <button
-                  onClick={async () => {
-                    const input = window.prompt('Digite o link da sua loja (letras, números e hífens):');
-                    if (!input) return;
-                    try {
-                      const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ slug: input }) });
-                      setVendorSettings(prev => ({ ...prev, ...data }));
-                      showAlert('Link configurado!', 'success');
-                    } catch (err) { showAlert(err.message || 'Erro ao configurar link'); }
-                  }}
-                  style={{ background: '#f57f17', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', flexShrink: 0, marginLeft: '12px' }}
-                >Configurar Link</button>
+            ) : null}
+            {!editingSlug && !vendorSettings?.slug ? (
+              <div style={{ background: '#fff8e1', borderRadius: '8px', padding: '12px 16px', marginBottom: '8px' }}>
+                <p style={{ margin: '0 0 10px', color: '#f57f17', fontSize: '14px' }}>⚠️ Link não configurado — clientes não conseguem acessar sua loja</p>
+                <button onClick={() => { setSlugInput(''); setEditingSlug(true); }}
+                  style={{ background: '#f57f17', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>Configurar Link</button>
               </div>
-            )}
-            <div style={{ fontSize: '12px', color: '#999', marginTop: '8px' }}>Compartilhe este link com seus clientes para que eles acessem seu cardápio.</div>
+            ) : null}
+            {editingSlug ? (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  value={slugInput}
+                  onChange={e => setSlugInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  placeholder="minha-loja"
+                  style={{ flex: 1, minWidth: '160px', padding: '10px 12px', border: '2px solid #667eea', borderRadius: '8px', fontSize: '14px' }}
+                  autoFocus
+                />
+                <button onClick={async () => {
+                  if (!slugInput.trim()) { showAlert('Digite um link válido'); return; }
+                  try {
+                    const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ slug: slugInput.trim() }) });
+                    setVendorSettings(prev => ({ ...prev, ...data }));
+                    setEditingSlug(false);
+                    showAlert('Link salvo!', 'success');
+                  } catch (err) { showAlert(err.message || 'Erro ao salvar link'); }
+                }} style={{ background: '#667eea', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>Salvar</button>
+                <button onClick={() => setEditingSlug(false)}
+                  style={{ background: '#f5f5f5', color: '#555', border: 'none', padding: '10px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>Cancelar</button>
+              </div>
+            ) : null}
+            <div style={{ fontSize: '12px', color: '#999', marginTop: '8px' }}>Use apenas letras minúsculas, números e hífens. Ex: açaí-da-maria</div>
           </div>
 
           {/* Configuração de entregas */}
@@ -2111,60 +2118,85 @@ export default function App() {
 
           {/* Gerenciar Categorias */}
           <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <div style={{ fontWeight: 'bold', fontSize: '16px' }}>🏷️ Categorias do Cardápio</div>
-              <button
-                onClick={async () => {
-                  const name = window.prompt('Nome da nova categoria:');
-                  if (!name?.trim()) return;
-                  const emoji = window.prompt('Emoji da categoria (ex: 🍦):', '🍦') || '🍦';
-                  const id = name.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40);
+              <button onClick={() => { setShowNewCatForm(v => !v); setNewCatForm({ label: '', emoji: '🍦' }); }}
+                style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                {showNewCatForm ? '✕ Cancelar' : '+ Nova'}
+              </button>
+            </div>
+
+            {showNewCatForm && (
+              <div style={{ background: '#f9f9f9', borderRadius: '8px', padding: '14px', marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div style={{ flex: 1, minWidth: '120px' }}>
+                  <label style={{ fontSize: '12px', color: '#666', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Emoji</label>
+                  <input value={newCatForm.emoji} onChange={e => setNewCatForm(f => ({ ...f, emoji: e.target.value }))}
+                    style={{ width: '60px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '20px', textAlign: 'center' }} maxLength={4} />
+                </div>
+                <div style={{ flex: 3, minWidth: '140px' }}>
+                  <label style={{ fontSize: '12px', color: '#666', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Nome da categoria *</label>
+                  <input value={newCatForm.label} onChange={e => setNewCatForm(f => ({ ...f, label: e.target.value }))}
+                    placeholder="Ex: Sorvetes" style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }} />
+                </div>
+                <button onClick={async () => {
+                  if (!newCatForm.label.trim()) { showAlert('Digite um nome'); return; }
+                  const id = newCatForm.label.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40);
                   if (!id) { showAlert('Nome inválido'); return; }
                   const existing = getCategories(vendorSettings?.categories);
                   if (existing.find(c => c.id === id)) { showAlert('Já existe uma categoria com esse nome'); return; }
-                  const updated = [...existing, { id, label: name.trim(), emoji: emoji.trim() || '🍦', enabled: true }];
+                  const updated = [...existing, { id, label: newCatForm.label.trim(), emoji: newCatForm.emoji.trim() || '🍦', enabled: true }];
                   try {
                     const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ categories: updated }) });
                     setVendorSettings(prev => ({ ...prev, ...data }));
+                    setShowNewCatForm(false);
                     showAlert('Categoria adicionada!', 'success');
                   } catch (err) { showAlert(err.message || 'Erro'); }
-                }}
-                style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
-              >+ Nova Categoria</button>
-            </div>
+                }} style={{ background: '#667eea', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', alignSelf: 'flex-end' }}>Salvar</button>
+              </div>
+            )}
+
             <div style={{ display: 'grid', gap: '8px' }}>
               {getCategories(vendorSettings?.categories).map((cat, idx, arr) => (
-                <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: '#f9f9f9', borderRadius: '8px', opacity: cat.enabled === false ? 0.6 : 1 }}>
-                  <span style={{ fontSize: '22px' }}>{cat.emoji}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{cat.label}</div>
-                    <div style={{ fontSize: '12px', color: '#999' }}>id: {cat.id}</div>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      const newLabel = window.prompt('Novo nome:', cat.label);
-                      if (!newLabel?.trim()) return;
-                      const newEmoji = window.prompt('Novo emoji:', cat.emoji) || cat.emoji;
-                      const updated = arr.map((c, i) => i === idx ? { ...c, label: newLabel.trim(), emoji: newEmoji.trim() || c.emoji } : c);
-                      try {
-                        const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ categories: updated }) });
-                        setVendorSettings(prev => ({ ...prev, ...data }));
-                        showAlert('Categoria atualizada!', 'success');
-                      } catch (err) { showAlert(err.message || 'Erro'); }
-                    }}
-                    style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
-                  >✏️ Editar</button>
-                  <button
-                    onClick={async () => {
-                      const updated = arr.map((c, i) => i === idx ? { ...c, enabled: c.enabled === false } : c);
-                      try {
-                        const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ categories: updated }) });
-                        setVendorSettings(prev => ({ ...prev, ...data }));
-                        showAlert(cat.enabled === false ? 'Categoria ativada!' : 'Categoria desativada!', 'success');
-                      } catch (err) { showAlert(err.message || 'Erro'); }
-                    }}
-                    style={{ background: cat.enabled === false ? '#e8f5e9' : '#ffebee', color: cat.enabled === false ? '#2e7d32' : '#c62828', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
-                  >{cat.enabled === false ? '✓ Ativar' : '✗ Desativar'}</button>
+                <div key={cat.id} style={{ background: '#f9f9f9', borderRadius: '8px', overflow: 'hidden', opacity: cat.enabled === false ? 0.65 : 1 }}>
+                  {editingCatIdx === idx ? (
+                    <div style={{ padding: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                      <input value={editCatForm.emoji} onChange={e => setEditCatForm(f => ({ ...f, emoji: e.target.value }))}
+                        style={{ width: '56px', padding: '7px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '18px', textAlign: 'center' }} maxLength={4} />
+                      <input value={editCatForm.label} onChange={e => setEditCatForm(f => ({ ...f, label: e.target.value }))}
+                        style={{ flex: 1, minWidth: '120px', padding: '8px 10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }} />
+                      <button onClick={async () => {
+                        if (!editCatForm.label.trim()) { showAlert('Nome inválido'); return; }
+                        const updated = arr.map((c, i) => i === idx ? { ...c, label: editCatForm.label.trim(), emoji: editCatForm.emoji.trim() || c.emoji } : c);
+                        try {
+                          const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ categories: updated }) });
+                          setVendorSettings(prev => ({ ...prev, ...data }));
+                          setEditingCatIdx(null);
+                          showAlert('Categoria atualizada!', 'success');
+                        } catch (err) { showAlert(err.message || 'Erro'); }
+                      }} style={{ background: '#667eea', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>Salvar</button>
+                      <button onClick={() => setEditingCatIdx(null)} style={{ background: '#eee', color: '#555', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>✕</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px' }}>
+                      <span style={{ fontSize: '22px' }}>{cat.emoji}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{cat.label}</div>
+                        <div style={{ fontSize: '11px', color: '#bbb' }}>{cat.id}</div>
+                      </div>
+                      <button onClick={() => { setEditingCatIdx(idx); setEditCatForm({ label: cat.label, emoji: cat.emoji }); }}
+                        style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>✏️</button>
+                      <button onClick={async () => {
+                        const updated = arr.map((c, i) => i === idx ? { ...c, enabled: c.enabled === false } : c);
+                        try {
+                          const data = await apiFetch('/vendors/settings', { method: 'PATCH', body: JSON.stringify({ categories: updated }) });
+                          setVendorSettings(prev => ({ ...prev, ...data }));
+                          showAlert(cat.enabled === false ? 'Ativada!' : 'Desativada!', 'success');
+                        } catch (err) { showAlert(err.message || 'Erro'); }
+                      }} style={{ background: cat.enabled === false ? '#e8f5e9' : '#ffebee', color: cat.enabled === false ? '#2e7d32' : '#c62828', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                        {cat.enabled === false ? '✓ Ativar' : '✗ Desativar'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -2202,22 +2234,21 @@ export default function App() {
           ) : (
             <div style={{ display: 'grid', gap: '12px' }}>
               {deliverers.map(d => (
-                <div key={d.id} style={{ background: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: d.status === 'inactive' ? 0.6 : 1 }}>
-                  <div>
+                <div key={d.id} style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', opacity: d.status === 'inactive' ? 0.6 : 1 }}>
+                  <div style={{ marginBottom: '12px' }}>
                     <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#333' }}>🚴 {d.name}</div>
                     <div style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>
                       📱 {d.phone}
-                      {d.vehicle && <span style={{ marginLeft: '12px' }}>🏍️ {d.vehicle}</span>}
-                      {d.cpf && <span style={{ marginLeft: '12px' }}>CPF: {d.cpf}</span>}
+                      {d.vehicle && <span style={{ marginLeft: '10px' }}>🏍️ {d.vehicle}</span>}
                     </div>
-                    <div style={{ fontSize: '13px', color: '#667eea', marginTop: '4px', fontWeight: 'bold' }}>Comissão: {d.commission_rate}% da taxa de entrega</div>
+                    <div style={{ fontSize: '13px', color: '#667eea', marginTop: '2px', fontWeight: 'bold' }}>Comissão: {d.commission_rate}% da taxa de entrega</div>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button onClick={() => toggleStatus(d)} style={{ background: d.status === 'active' ? '#e8f5e9' : '#ffebee', color: d.status === 'active' ? '#2e7d32' : '#c62828', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button onClick={() => toggleStatus(d)} style={{ background: d.status === 'active' ? '#e8f5e9' : '#ffebee', color: d.status === 'active' ? '#2e7d32' : '#c62828', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', flex: 1, minWidth: '100px' }}>
                       {d.status === 'active' ? '✓ Ativo' : '✗ Inativo'}
                     </button>
-                    <button onClick={() => openEdit(d)} style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>✏️ Editar</button>
-                    <button onClick={() => deleteDel(d.id)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>🗑️</button>
+                    <button onClick={() => openEdit(d)} style={{ background: '#f0e7ff', color: '#667eea', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', flex: 1, minWidth: '100px' }}>✏️ Editar</button>
+                    <button onClick={() => deleteDel(d.id)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', flex: 1, minWidth: '100px' }}>🗑️ Excluir</button>
                   </div>
                 </div>
               ))}
