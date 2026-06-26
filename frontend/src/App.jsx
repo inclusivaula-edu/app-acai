@@ -173,7 +173,7 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
               { s: 'admin',             icon: '📊', label: 'Dashboard' },
               { s: 'orders-admin',      icon: '📦', label: 'Pedidos' },
               { s: 'products-admin',    icon: '🛍️', label: 'Produtos' },
-              { s: 'deliverers-admin',  icon: '🚴', label: 'Entregadores' },
+              { s: 'deliverers-admin',  icon: '⚙️', label: 'Configuração' },
               { s: 'commissions-admin', icon: '💰', label: 'Comissões' },
               { s: 'messages-admin',    icon: '💬', label: 'Mensagens' },
               {
@@ -636,6 +636,11 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  // Aguarda carregamento da sessão para evitar flash da tela de login
+  if (!sessionLoaded && (screen === 'login' || screen === 'admin' || screen === 'orders-admin' || screen === 'products-admin' || screen === 'deliverers-admin' || screen === 'commissions-admin' || screen === 'messages-admin' || screen === 'plans')) {
+    return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}><div style={{ fontSize: '32px' }}>🫐</div></div>;
   }
 
   // ─── LOGIN ───────────────────────────────────────────────────────────────────
@@ -1177,11 +1182,11 @@ export default function App() {
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
         <AdminHeader active="messages-admin" {...adminHeaderProps} />
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px', display: 'flex', gap: '16px', height: 'calc(100vh - 80px)', boxSizing: 'border-box' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '16px', display: 'flex', flexWrap: 'wrap', gap: '16px', height: 'calc(100vh - 160px)', minHeight: '400px', boxSizing: 'border-box' }}>
           <Alert msg={alert.msg} type={alert.type} />
 
           {/* Lista de conversas */}
-          <div style={{ width: '320px', flexShrink: 0, background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ width: '300px', minWidth: '260px', flexShrink: 0, flexGrow: window.innerWidth < 700 ? 1 : 0, background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold', fontSize: '16px', color: '#333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>💬 Conversas</span>
               <button onClick={fetchConversations} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: '#999' }} title="Atualizar">🔄</button>
