@@ -1339,8 +1339,8 @@ export default function App() {
           <div style={{ background: '#1a1a2e', borderRadius: '16px', padding: '20px 28px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
             <div>
               <div style={{ fontSize: '11px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>💎 Premium — Multilojas</div>
-              <div style={{ color: '#fff', fontSize: '14px', marginBottom: '4px' }}>Múltiplas lojas · Suporte prioritário 24h · API · Relatórios avançados</div>
-              <div style={{ fontSize: '12px', color: '#888' }}>Para redes e franquias de açaí</div>
+              <div style={{ color: '#fff', fontSize: '14px', marginBottom: '4px' }}>Até 3 lojas · Suporte prioritário 24h · API · Relatórios avançados</div>
+              <div style={{ fontSize: '12px', color: '#888' }}>Somente anual · Para redes e franquias de açaí</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff', lineHeight: 1 }}>R$ 590</div>
@@ -2380,8 +2380,9 @@ export default function App() {
           {/* Âncora Premium */}
           <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '14px 18px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: '10px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '2px' }}>💎 Premium</div>
-              <div style={{ color: '#fff', fontSize: '13px' }}>Multilojas · Suporte 24h · API · Relatórios</div>
+              <div style={{ fontSize: '10px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '2px' }}>💎 Premium — Multilojas</div>
+              <div style={{ color: '#fff', fontSize: '13px' }}>Até 3 lojas · Suporte 24h · API · Relatórios</div>
+              <div style={{ fontSize: '10px', color: '#888', marginTop: '2px' }}>Somente anual</div>
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
               <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff' }}>R$590</div>
