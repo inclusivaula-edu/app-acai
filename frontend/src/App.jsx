@@ -151,40 +151,65 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
           <button onClick={onResendConfirmation} style={{ background: 'none', border: '1px solid #f57f17', color: '#f57f17', padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Reenviar</button>
         </div>
       )}
-      {/* Linha 1: logo + ações secundárias */}
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid #f0f0f0' }}>
-        <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-          <h1 style={{ margin: 0, fontSize: '17px', color: '#667eea', whiteSpace: 'nowrap' }}>🫐 {user?.name || 'Admin'}</h1>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button onClick={() => {
-              const slug = vendorSettings?.slug;
-              if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
-              else showAlert('Configure o link da loja primeiro (aba Entregadores → Link da Loja)', 'error');
-            }} style={{ background: 'none', border: '1px solid #ddd', color: '#666', cursor: 'pointer', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', whiteSpace: 'nowrap' }}>🔗 Cardápio</button>
-            <button onClick={() => onNavigate('plans')} style={{ background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1', border: 'none', color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17', cursor: 'pointer', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+      <div style={{ padding: '10px 16px' }}>
+        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+
+          {/* Linha 1: Nome ←→ Plano */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <h1 style={{ margin: 0, fontSize: '17px', color: '#667eea', whiteSpace: 'nowrap' }}>🫐 {user?.name || 'Admin'}</h1>
+            <button onClick={() => onNavigate('plans')} style={{
+              background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1',
+              border: 'none',
+              color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17',
+              cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap',
+            }}>
               {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '✓ Plano Ativo' : planStatus?.plan === 'trial' ? `⏳ ${planStatus.trial_days_left ?? '?'}d trial` : '⚠️ Planos'}
             </button>
-            <button onClick={onLogout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '6px 10px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-              <LogOut size={13} /> Sair
-            </button>
           </div>
-        </div>
-      </div>
-      {/* Linha 2: tabs de navegação */}
-      <div style={{ padding: '6px 16px 8px', overflowX: 'auto' }}>
-        <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-          {[['admin','📊','Dashboard'],['orders-admin','📦','Pedidos'],['products-admin','🛍️','Produtos'],['deliverers-admin','🚴','Entregadores'],['commissions-admin','💰','Comissões'],['messages-admin','💬','Mensagens']].map(([s, icon, label]) => (
-            <button key={s} onClick={() => onNavigate(s)} style={{
-              background: active === s ? '#667eea' : '#f5f5f5',
-              border: 'none',
-              color: active === s ? '#fff' : '#555',
-              cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
-              padding: '8px 14px', borderRadius: '8px', whiteSpace: 'nowrap',
-              display: 'flex', alignItems: 'center', gap: '5px',
-            }}>
-              <span>{icon}</span><span>{label}</span>
-            </button>
-          ))}
+
+          {/* Linhas 2+: grade 3 colunas com todas as ações */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+            {[
+              { s: 'admin',             icon: '📊', label: 'Dashboard' },
+              { s: 'orders-admin',      icon: '📦', label: 'Pedidos' },
+              { s: 'products-admin',    icon: '🛍️', label: 'Produtos' },
+              { s: 'deliverers-admin',  icon: '🚴', label: 'Entregadores' },
+              { s: 'commissions-admin', icon: '💰', label: 'Comissões' },
+              { s: 'messages-admin',    icon: '💬', label: 'Mensagens' },
+              {
+                s: '__cardapio__', icon: '🔗', label: 'Ver Cardápio',
+                onClick: () => {
+                  const slug = vendorSettings?.slug;
+                  if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
+                  else showAlert('Configure o link da loja primeiro', 'error');
+                },
+                style: { background: '#f5f5f5', color: '#555' },
+              },
+              {
+                s: '__sair__', icon: '🚪', label: 'Sair',
+                onClick: onLogout,
+                style: { background: '#ffebee', color: '#c62828' },
+              },
+            ].map(({ s, icon, label, onClick, style: extra = {} }) => (
+              <button
+                key={s}
+                onClick={onClick ?? (() => onNavigate(s))}
+                style={{
+                  background: active === s ? '#667eea' : '#f5f5f5',
+                  border: 'none',
+                  color: active === s ? '#fff' : '#555',
+                  cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+                  padding: '9px 6px', borderRadius: '8px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+                  ...extra,
+                  ...(active === s ? { background: '#667eea', color: '#fff' } : {}),
+                }}
+              >
+                <span>{icon}</span><span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+              </button>
+            ))}
+          </div>
+
         </div>
       </div>
     </div>
