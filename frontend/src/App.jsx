@@ -1308,9 +1308,9 @@ export default function App() {
   // ─── PLANOS ───────────────────────────────────────────────────────────────────
   if (screen === 'plans') {
     const PLAN_INFO = {
-      monthly:    { label: 'Mensal',    badge: null,              color: '#667eea' },
-      semiannual: { label: 'Semestral', badge: 'Mais popular',    color: '#f39c12' },
-      annual:     { label: 'Anual',     badge: 'Melhor custo',    color: '#2ecc71' },
+      monthly:    { label: 'Mensal',    badge: null,                      color: '#667eea', savings: null },
+      semiannual: { label: 'Semestral', badge: 'Mais popular',            color: '#f39c12', savings: 'Economize R$240/ano vs mensal' },
+      annual:     { label: 'Anual',     badge: '⭐ Melhor valor',         color: '#2ecc71', savings: 'Economize R$960/ano vs mensal · 64% vs Premium' },
     };
     const canceled = new URLSearchParams(window.location.search).get('plan_canceled');
     return (
@@ -1335,6 +1335,23 @@ export default function App() {
             </div>
           )}
 
+          {/* Âncora Premium */}
+          <div style={{ background: '#1a1a2e', borderRadius: '16px', padding: '20px 28px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <div style={{ fontSize: '11px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>💎 Premium — Multilojas</div>
+              <div style={{ color: '#fff', fontSize: '14px', marginBottom: '4px' }}>Múltiplas lojas · Suporte prioritário 24h · API · Relatórios avançados</div>
+              <div style={{ fontSize: '12px', color: '#888' }}>Para redes e franquias de açaí</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff', lineHeight: 1 }}>R$ 590</div>
+              <div style={{ fontSize: '13px', color: '#888' }}>/mês</div>
+              <button onClick={() => window.open('https://wa.me/55' + (vendorSettings?.phone || ''), '_blank')}
+                style={{ marginTop: '8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                Solicitar →
+              </button>
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
             {plans.map(plan => {
               const info = PLAN_INFO[plan.id] || {};
@@ -1350,18 +1367,19 @@ export default function App() {
                   <div style={{ fontSize: '42px', fontWeight: 'bold', color: '#333', lineHeight: 1 }}>
                     R$ {plan.price_monthly.toFixed(2).replace('.', ',')}
                   </div>
-                  <div style={{ fontSize: '14px', color: '#999', marginBottom: '16px' }}>por mês</div>
+                  <div style={{ fontSize: '14px', color: '#999', marginBottom: '8px' }}>por mês</div>
+
+                  {info.savings && (
+                    <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: '8px', padding: '6px 10px', marginBottom: '10px', fontSize: '12px', color: '#e65100', fontWeight: 'bold' }}>
+                      🔥 {info.savings}
+                    </div>
+                  )}
 
                   {plan.months > 1 && (
                     <div style={{ background: '#f0f9f0', border: '1px solid #a5d6a7', borderRadius: '8px', padding: '8px 12px', marginBottom: '16px' }}>
                       <div style={{ fontSize: '13px', color: '#2e7d32', fontWeight: 'bold' }}>
                         Total: R$ {plan.total.toFixed(2).replace('.', ',')}
                       </div>
-                      {plan.savings > 0 && (
-                        <div style={{ fontSize: '12px', color: '#43a047' }}>
-                          Economia de R$ {plan.savings.toFixed(2).replace('.', ',')} vs mensal
-                        </div>
-                      )}
                     </div>
                   )}
 
@@ -2350,38 +2368,57 @@ export default function App() {
   // ─── CADASTRO DE LOJISTA ─────────────────────────────────────────────────────
   // ─── PREVIEW DE PLANOS (antes do cadastro) ───────────────────────────────────
   if (screen === 'plans-preview') {
-    const PLAN_INFO = [
-      { id: 'monthly',    label: 'Mensal',    price: 290, per: 'mês',   badge: null,           months: 1  },
-      { id: 'semiannual', label: 'Semestral', price: 250, per: 'mês',   badge: 'Mais popular', months: 6  },
-      { id: 'annual',     label: 'Anual',     price: 210, per: 'mês',   badge: 'Melhor custo', months: 12 },
-    ];
     return (
       <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-        <div style={{ background: '#fff', borderRadius: '20px', padding: '40px 36px', maxWidth: '520px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-            <div style={{ fontSize: '44px', marginBottom: '8px' }}>🫐</div>
-            <h1 style={{ margin: '0 0 6px', fontSize: '22px', color: '#333' }}>Comece com 14 dias grátis</h1>
-            <p style={{ margin: 0, fontSize: '14px', color: '#999' }}>Após o trial, escolha um plano para continuar</p>
+        <div style={{ background: '#fff', borderRadius: '20px', padding: '36px 28px', maxWidth: '560px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+            <div style={{ fontSize: '40px', marginBottom: '6px' }}>🫐</div>
+            <h1 style={{ margin: '0 0 4px', fontSize: '21px', color: '#333' }}>Comece com 14 dias grátis</h1>
+            <p style={{ margin: 0, fontSize: '13px', color: '#999' }}>Sem cartão de crédito. Cancele quando quiser.</p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '24px' }}>
-            {PLAN_INFO.map(p => (
-              <div key={p.id} style={{ border: p.badge === 'Mais popular' ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '12px', padding: '14px 10px', textAlign: 'center', position: 'relative' }}>
+          {/* Âncora Premium */}
+          <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '14px 18px', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '10px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '2px' }}>💎 Premium</div>
+              <div style={{ color: '#fff', fontSize: '13px' }}>Multilojas · Suporte 24h · API · Relatórios</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff' }}>R$590</div>
+              <div style={{ fontSize: '10px', color: '#888' }}>/mês</div>
+            </div>
+          </div>
+
+          {/* Planos reais — grade 3 colunas */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
+            {[
+              { id: 'monthly',    label: 'Mensal',    price: 290, months: 1,  badge: null,                badgeColor: null,     highlight: false },
+              { id: 'semiannual', label: 'Semestral', price: 250, months: 6,  badge: 'Popular',           badgeColor: '#f39c12', highlight: false },
+              { id: 'annual',     label: 'Anual',     price: 210, months: 12, badge: '⭐ Melhor valor',   badgeColor: '#667eea', highlight: true  },
+            ].map(p => (
+              <div key={p.id} style={{ border: p.highlight ? '2px solid #667eea' : '1px solid #e0e0e0', borderRadius: '12px', padding: '12px 8px', textAlign: 'center', position: 'relative', background: p.highlight ? '#f8f6ff' : '#fff' }}>
                 {p.badge && (
-                  <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: p.badge === 'Mais popular' ? '#667eea' : '#2ecc71', color: '#fff', fontSize: '10px', padding: '2px 8px', borderRadius: '20px', whiteSpace: 'nowrap', fontWeight: 'bold' }}>{p.badge}</div>
+                  <div style={{ position: 'absolute', top: '-9px', left: '50%', transform: 'translateX(-50%)', background: p.badgeColor, color: '#fff', fontSize: '9px', padding: '2px 7px', borderRadius: '20px', whiteSpace: 'nowrap', fontWeight: 'bold' }}>{p.badge}</div>
                 )}
-                <div style={{ fontSize: '11px', color: '#999', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{p.label}</div>
-                <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#333' }}>R${p.price}</div>
-                <div style={{ fontSize: '11px', color: '#aaa' }}>/{p.per}</div>
-                {p.months > 1 && <div style={{ fontSize: '11px', color: '#667eea', marginTop: '4px', fontWeight: 'bold' }}>Total R${(p.price * p.months).toFixed(0)}</div>}
+                <div style={{ fontSize: '10px', color: '#999', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{p.label}</div>
+                <div style={{ fontSize: '21px', fontWeight: 'bold', color: p.highlight ? '#667eea' : '#333' }}>R${p.price}</div>
+                <div style={{ fontSize: '10px', color: '#aaa' }}>/mês</div>
+                {p.months > 1 && (
+                  <div style={{ fontSize: '10px', color: '#2ecc71', marginTop: '3px', fontWeight: 'bold' }}>
+                    −{Math.round((1 - p.price / 290) * 100)}% vs mensal
+                  </div>
+                )}
+                <div style={{ fontSize: '10px', color: '#c0392b', marginTop: '2px', fontWeight: 'bold' }}>
+                  −{Math.round((1 - p.price / 590) * 100)}% vs Premium
+                </div>
               </div>
             ))}
           </div>
 
-          <div style={{ background: '#f8f9ff', borderRadius: '10px', padding: '14px 16px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {['14 dias grátis para testar tudo', 'Sem cartão de crédito no trial', 'Cardápio online + pedidos + WhatsApp', 'Cancele quando quiser'].map(item => (
+          <div style={{ background: '#f8f9ff', borderRadius: '10px', padding: '12px 14px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            {['Cardápio online personalizado', 'Pedidos + notificações WhatsApp', 'PIX automático no 1º contato', 'Painel de gestão completo'].map(item => (
               <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#555' }}>
-                <span style={{ color: '#2ecc71', fontWeight: 'bold', fontSize: '15px' }}>✓</span> {item}
+                <span style={{ color: '#2ecc71', fontWeight: 'bold' }}>✓</span> {item}
               </div>
             ))}
           </div>
@@ -2395,7 +2432,7 @@ export default function App() {
             </button>
           </div>
 
-          <p style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', margin: '16px 0 0' }}>
+          <p style={{ fontSize: '11px', color: '#bbb', textAlign: 'center', margin: '14px 0 0' }}>
             Após o trial a conta é bloqueada até a assinatura de um plano.
           </p>
         </div>
