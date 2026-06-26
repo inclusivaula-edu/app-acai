@@ -551,6 +551,13 @@ app.get('/api/store/:slug', async (req, res) => {
       .eq('slug', req.params.slug)
       .eq('status', 'active')
       .single();
+    if ((error || !data) && error?.message?.includes('categories')) {
+      const { data: d2, error: e2 } = await supabase
+        .from('vendors').select('name, slug, deliveries_enabled, delivery_fee, pix_key, logo_url')
+        .eq('slug', req.params.slug).eq('status', 'active').single();
+      if (e2 || !d2) return res.status(404).json({ error: 'Loja não encontrada' });
+      return res.json(d2);
+    }
     if (error || !data) return res.status(404).json({ error: 'Loja não encontrada' });
     res.json(data);
   } catch {
@@ -1633,10 +1640,17 @@ app.patch('/api/orders/:id/commission-paid', [auth, planCheck], async (req, res)
 // ============================================
 app.get('/api/vendors/settings', auth, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('vendors')
       .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token, categories')
       .eq('id', req.user.id).single();
+    if (error && error.message?.includes('categories')) {
+      // Coluna categories ainda não existe — busca sem ela
+      ({ data, error } = await supabase
+        .from('vendors')
+        .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token')
+        .eq('id', req.user.id).single());
+    }
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
@@ -1677,9 +1691,16 @@ app.patch('/api/vendors/settings', auth, async (req, res) => {
       })).filter(c => c.id && c.label);
     }
 
-    const { data, error } = await supabase
-      .from('vendors').update(updates).eq('id', req.user.id)
-      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token, categories').single();
+    // Tenta salvar com categories; se a coluna não existir, remove do update e retorna sem ela
+    const selectWith    = 'deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token, categories';
+    const selectWithout = 'deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token';
+    let { data, error } = await supabase
+      .from('vendors').update(updates).eq('id', req.user.id).select(selectWith).single();
+    if (error && error.message?.includes('categories')) {
+      const { categories: _dropped, ...updatesWithout } = updates;
+      ({ data, error } = await supabase
+        .from('vendors').update(updatesWithout).eq('id', req.user.id).select(selectWithout).single());
+    }
     if (error) return sbErr(error, res);
     res.json(data);
   } catch {
