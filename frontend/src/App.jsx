@@ -1439,17 +1439,38 @@ export default function App() {
             <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>Carregando...</div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+              {/* Row 1: Pedidos hoje | Total de pedidos */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                 {[
+                  { label: 'Pedidos Hoje', value: dashboard.ordersToday, icon: '📅', color: '#e74c3c' },
                   { label: 'Total de Pedidos', value: dashboard.totalOrders, icon: '📦', color: '#667eea' },
-                  { label: 'Receita Confirmada', value: `R$ ${dashboard.totalRevenue}`, icon: '✅', color: '#2ecc71' },
+                ].map(card => (
+                  <div key={card.label} style={{ background: '#fff', padding: '20px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', borderLeft: `4px solid ${card.color}` }}>
+                    <div style={{ fontSize: '24px', marginBottom: '6px' }}>{card.icon}</div>
+                    <div style={{ fontSize: '11px', color: '#999', marginBottom: '4px' }}>{card.label}</div>
+                    <div style={{ fontSize: '22px', fontWeight: 'bold', color: card.color }}>{card.value}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Row 2: Pendentes | Ticket médio */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                {[
                   { label: 'Pendente (em aberto)', value: `R$ ${dashboard.pendingRevenue || '0.00'}`, icon: '⏳', color: '#f39c12' },
                   { label: 'Ticket Médio', value: `R$ ${dashboard.averageTicket}`, icon: '📈', color: '#667eea' },
-                  { label: 'Pedidos Hoje', value: dashboard.ordersToday, icon: '📅', color: '#e74c3c' },
                 ].map(card => (
-                  <div key={card.label} style={{ background: '#fff', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', borderLeft: `4px solid ${card.color}` }}>
-                    <div style={{ fontSize: '28px', marginBottom: '8px' }}>{card.icon}</div>
-                    <div style={{ fontSize: '12px', color: '#999', marginBottom: '4px' }}>{card.label}</div>
+                  <div key={card.label} style={{ background: '#fff', padding: '20px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', borderLeft: `4px solid ${card.color}` }}>
+                    <div style={{ fontSize: '24px', marginBottom: '6px' }}>{card.icon}</div>
+                    <div style={{ fontSize: '11px', color: '#999', marginBottom: '4px' }}>{card.label}</div>
+                    <div style={{ fontSize: '22px', fontWeight: 'bold', color: card.color }}>{card.value}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Row 3: Receita confirmada (full width) */}
+              <div style={{ marginBottom: '24px' }}>
+                {[{ label: 'Receita Confirmada', value: `R$ ${dashboard.totalRevenue}`, icon: '✅', color: '#2ecc71' }].map(card => (
+                  <div key={card.label} style={{ background: '#fff', padding: '20px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', borderLeft: `4px solid ${card.color}` }}>
+                    <div style={{ fontSize: '24px', marginBottom: '6px' }}>{card.icon}</div>
+                    <div style={{ fontSize: '11px', color: '#999', marginBottom: '4px' }}>{card.label}</div>
                     <div style={{ fontSize: '26px', fontWeight: 'bold', color: card.color }}>{card.value}</div>
                   </div>
                 ))}
