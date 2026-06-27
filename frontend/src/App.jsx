@@ -1477,14 +1477,32 @@ export default function App() {
               </div>
               <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '24px' }}>
                 <h3 style={{ marginTop: 0, marginBottom: '16px' }}>Status dos Pedidos</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
-                  {Object.entries(dashboard.ordersByStatus || {}).map(([status, count]) => (
-                    <div key={status} style={{ background: STATUS_COLORS[status]?.bg || '#f5f5f5', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '22px', fontWeight: 'bold', color: STATUS_COLORS[status]?.color || '#333' }}>{count}</div>
-                      <div style={{ color: '#666', marginTop: '4px', fontSize: '12px' }}>{STATUS_LABELS[status] || status}</div>
+                {(() => {
+                  const byStatus = dashboard.ordersByStatus || {};
+                  const statusCard = (key) => (
+                    <div key={key} style={{ background: STATUS_COLORS[key]?.bg || '#f5f5f5', padding: '16px', borderRadius: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '22px', fontWeight: 'bold', color: STATUS_COLORS[key]?.color || '#333' }}>{byStatus[key] ?? 0}</div>
+                      <div style={{ color: '#666', marginTop: '4px', fontSize: '12px' }}>{STATUS_LABELS[key] || key}</div>
                     </div>
-                  ))}
-                </div>
+                  );
+                  return (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                        {statusCard('aguardando_pagamento')}
+                        {statusCard('confirmado')}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                        {statusCard('em_preparo')}
+                        {statusCard('pronto')}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                        {statusCard('em_entrega')}
+                        {statusCard('cancelado')}
+                      </div>
+                      <div>{statusCard('entregue')}</div>
+                    </>
+                  );
+                })()}
               </div>
               <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
                 <h3 style={{ marginTop: 0 }}>Pedidos Recentes</h3>
