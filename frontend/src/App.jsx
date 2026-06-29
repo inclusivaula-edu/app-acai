@@ -1785,8 +1785,9 @@ export default function App() {
     if (!sessionLoaded) return null;
     if (!user) { setScreen('login'); return null; }
 
-    const openNew = () => { const firstCat = getCategories(vendorSettings?.categories)[0]?.id || 'base'; setProductForm({ name: '', description: '', price: '', category: firstCat, emoji: '🫐', calories: '', ingredients: '', allergens: '' }); setEditingProduct(null); setShowProductForm(true); };
-    const openEdit = (p) => { setProductForm({ name: p.name, description: p.description || '', price: p.price, category: p.category, emoji: p.icon || p.emoji || '🫐', calories: p.calories || '', ingredients: p.ingredients || '', allergens: p.allergens || '' }); setEditingProduct({ ...p }); setShowProductForm(true); };
+    const scrollToForm = () => setTimeout(() => document.getElementById('product-form-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    const openNew = () => { const firstCat = getCategories(vendorSettings?.categories)[0]?.id || 'base'; setProductForm({ name: '', description: '', price: '', category: firstCat, emoji: '🫐', calories: '', ingredients: '', allergens: '' }); setEditingProduct(null); setShowProductForm(true); scrollToForm(); };
+    const openEdit = (p) => { setProductForm({ name: p.name, description: p.description || '', price: p.price, category: p.category, emoji: p.icon || p.emoji || '🫐', calories: p.calories || '', ingredients: p.ingredients || '', allergens: p.allergens || '' }); setEditingProduct({ ...p }); setShowProductForm(true); scrollToForm(); };
 
     const uploadImage = async (productId, file) => {
       if (file.size > 5 * 1024 * 1024) throw new Error('Imagem muito grande (máx. 5MB)');
@@ -1845,7 +1846,7 @@ export default function App() {
           </div>
 
           {showProductForm && (
-            <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+            <div id="product-form-anchor" style={{ background: '#fff', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
               <h3 style={{ marginTop: 0 }}>{editingProduct ? 'Editar Produto' : 'Novo Produto'}</h3>
               <form onSubmit={saveProduct}>
                 <div className="product-form-grid">

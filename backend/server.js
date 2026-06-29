@@ -1148,11 +1148,14 @@ app.post('/api/products', [auth, planCheck], async (req, res) => {
       ({ data, error } = await supabase.from('products').insert({ ...insertData, icon: nullify(emoji) || '🫐' }).select().single());
     }
 
-    if (error) return sbErr(error, res);
+    if (error) {
+      console.error('Supabase insert product error:', error);
+      return res.status(500).json({ error: error.message || 'Erro interno', detail: error.details || null });
+    }
     res.status(201).json(data);
   } catch (err) {
     console.error('POST /api/products error:', err);
-    res.status(500).json({ error: 'Erro interno ao criar produto' });
+    res.status(500).json({ error: err.message || 'Erro interno ao criar produto' });
   }
 });
 
@@ -1174,7 +1177,7 @@ app.put('/api/products/:id', [auth, planCheck], async (req, res) => {
         return res.status(400).json({ error: 'Preço inválido' });
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('products')
       .update(updates)
       .eq('id', req.params.id)
@@ -1182,7 +1185,19 @@ app.put('/api/products/:id', [auth, planCheck], async (req, res) => {
       .select()
       .single();
 
-    if (error) return sbErr(error, res);
+    // se coluna 'emoji' não existe, tenta com 'icon'
+    if (error && error.message?.includes('emoji') && updates.emoji !== undefined) {
+      const { emoji, ...rest } = updates;
+      ({ data, error } = await supabase
+        .from('products')
+        .update({ ...rest, icon: emoji })
+        .eq('id', req.params.id)
+        .eq('vendor_id', req.user.id)
+        .select()
+        .single());
+    }
+
+    if (error) { console.error('PUT /api/products error:', error); return res.status(500).json({ error: error.message }); }
     if (!data)  return res.status(404).json({ error: 'Produto não encontrado' });
 
     res.json({ message: 'Produto atualizado', product: data });
