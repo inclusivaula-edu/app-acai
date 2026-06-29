@@ -1132,25 +1132,26 @@ app.post('/api/products', [auth, planCheck], async (req, res) => {
 
     const nullify = v => (v === '' || v === undefined) ? null : v;
 
-    const { data, error } = await supabase
-      .from('products')
-      .insert({
-        vendor_id:    req.user.id,
-        name,
-        description:  nullify(description),
-        price:        parsedPrice,
-        category,
-        emoji:        nullify(emoji) || '🫐',
-        calories:     nullify(calories),
-        ingredients:  nullify(ingredients),
-        allergens:    nullify(allergens),
-      })
-      .select()
-      .single();
+    const insertData = {
+      vendor_id:    req.user.id,
+      name,
+      description:  nullify(description),
+      price:        parsedPrice,
+      category,
+      calories:     nullify(calories),
+      ingredients:  nullify(ingredients),
+      allergens:    nullify(allergens),
+    };
+    // tenta inserir com 'emoji'; se a coluna não existir, tenta 'icon'
+    let { data, error } = await supabase.from('products').insert({ ...insertData, emoji: nullify(emoji) || '🫐' }).select().single();
+    if (error && error.message?.includes('emoji')) {
+      ({ data, error } = await supabase.from('products').insert({ ...insertData, icon: nullify(emoji) || '🫐' }).select().single());
+    }
 
     if (error) return sbErr(error, res);
     res.status(201).json(data);
-  } catch {
+  } catch (err) {
+    console.error('POST /api/products error:', err);
     res.status(500).json({ error: 'Erro interno ao criar produto' });
   }
 });
@@ -1160,7 +1161,7 @@ app.post('/api/products', [auth, planCheck], async (req, res) => {
 // ============================================
 app.put('/api/products/:id', [auth, planCheck], async (req, res) => {
   try {
-    const allowed = ['name','description','price','category','emoji','available','calories','ingredients','allergens'];
+    const allowed = ['name','description','price','category','emoji','icon','available','calories','ingredients','allergens'];
     const updates = Object.fromEntries(
       Object.entries(req.body)
         .filter(([k]) => allowed.includes(k))
