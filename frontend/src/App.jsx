@@ -182,6 +182,7 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
               { s: 'products-admin',    icon: '🛍️', label: 'Produtos' },
               { s: 'deliverers-admin',  icon: '⚙️', label: 'Configuração' },
               { s: 'commissions-admin', icon: '💰', label: 'Comissões' },
+              { s: 'tutorial-admin',    icon: '📖', label: 'Tutorial' },
               {
                 s: '__cardapio__', icon: '🔗', label: 'Ver Cardápio',
                 onClick: () => {
@@ -2330,6 +2331,125 @@ export default function App() {
               ))}
             </div>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── TUTORIAL ────────────────────────────────────────────────────────────────
+  if (screen === 'tutorial-admin') {
+    if (!sessionLoaded) return null;
+    if (!user) { setScreen('login'); return null; }
+
+    const slug = vendorSettings?.slug;
+    const cardapioUrl = slug ? `${window.location.origin}${window.location.pathname}?loja=${slug}` : null;
+
+    const steps = [
+      {
+        num: '1', icon: '🏪', title: 'Configure sua loja',
+        desc: 'Vá em Configuração → defina o link da loja, chave PIX e taxa de entrega.',
+        action: () => setScreen('deliverers-admin'),
+        btn: 'Ir para Configuração',
+        done: !!(vendorSettings?.slug && vendorSettings?.pix_key),
+      },
+      {
+        num: '2', icon: '🖼️', title: 'Adicione sua logo',
+        desc: 'Em Configuração → envie a logo da sua loja. Ela aparece no topo do cardápio.',
+        action: () => setScreen('deliverers-admin'),
+        btn: 'Ir para Configuração',
+        done: !!vendorSettings?.logo_url,
+      },
+      {
+        num: '3', icon: '🛍️', title: 'Cadastre seus produtos',
+        desc: 'Vá em Produtos → clique em "+ Novo Produto" → preencha nome, preço, categoria e foto.',
+        action: () => setScreen('products-admin'),
+        btn: 'Ir para Produtos',
+        done: products.length > 0,
+      },
+      {
+        num: '4', icon: '🔗', title: 'Compartilhe seu cardápio',
+        desc: cardapioUrl ? `Seu link: ${cardapioUrl}` : 'Configure o link da loja primeiro (passo 1).',
+        action: cardapioUrl ? () => { navigator.clipboard?.writeText(cardapioUrl); showAlert('Link copiado!', 'success'); } : () => setScreen('deliverers-admin'),
+        btn: cardapioUrl ? '📋 Copiar link' : 'Configurar link',
+        done: !!cardapioUrl,
+      },
+      {
+        num: '5', icon: '💬', title: 'Conecte o WhatsApp (opcional)',
+        desc: 'Em Configuração → Z-API: conecte seu WhatsApp para receber pedidos automaticamente.',
+        action: () => setScreen('deliverers-admin'),
+        btn: 'Ir para Configuração',
+        done: !!(vendorSettings?.zapi_instance_id && vendorSettings?.zapi_token),
+      },
+      {
+        num: '6', icon: '📦', title: 'Gerencie seus pedidos',
+        desc: 'Em Pedidos você vê todos os pedidos em tempo real. Atualize o status para o cliente acompanhar.',
+        action: () => setScreen('orders-admin'),
+        btn: 'Ver Pedidos',
+        done: orders.length > 0,
+      },
+    ];
+
+    const doneCount = steps.filter(s => s.done).length;
+    const pct = Math.round((doneCount / steps.length) * 100);
+
+    return (
+      <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
+        <AdminHeader active="tutorial-admin" {...adminHeaderProps} />
+        <div className="admin-page-inner">
+          <Alert msg={alert.msg} type={alert.type} />
+
+          {/* Cabeçalho */}
+          <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '16px', padding: '28px', marginBottom: '28px', color: '#fff' }}>
+            <div style={{ fontSize: '36px', marginBottom: '8px' }}>📖</div>
+            <h2 style={{ margin: '0 0 6px' }}>Primeiros Passos</h2>
+            <p style={{ margin: '0 0 16px', opacity: 0.85, fontSize: '15px' }}>Siga este guia para configurar sua loja e receber seu primeiro pedido.</p>
+            {/* Barra de progresso */}
+            <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '8px', height: '10px', marginBottom: '8px' }}>
+              <div style={{ background: '#fff', borderRadius: '8px', height: '10px', width: `${pct}%`, transition: 'width 0.4s' }} />
+            </div>
+            <div style={{ fontSize: '13px', opacity: 0.9 }}>{doneCount} de {steps.length} etapas concluídas · {pct}%</div>
+          </div>
+
+          {/* Passos */}
+          <div style={{ display: 'grid', gap: '14px', marginBottom: '28px' }}>
+            {steps.map(step => (
+              <div key={step.num} style={{ background: '#fff', borderRadius: '12px', padding: '20px 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', gap: '16px', alignItems: 'flex-start', borderLeft: `4px solid ${step.done ? '#2ecc71' : '#667eea'}`, opacity: step.done ? 0.8 : 1 }}>
+                <div style={{ fontSize: '28px', flexShrink: 0, marginTop: '2px' }}>{step.done ? '✅' : step.icon}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 'bold', fontSize: '16px', color: '#333' }}>{step.num}. {step.title}</span>
+                    {step.done && <span style={{ background: '#e8f5e9', color: '#2e7d32', fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '20px' }}>Concluído</span>}
+                  </div>
+                  <p style={{ margin: '0 0 12px', color: '#666', fontSize: '14px', lineHeight: '1.5', wordBreak: 'break-all' }}>{step.desc}</p>
+                  <button onClick={step.action} style={{ background: step.done ? '#f5f5f5' : '#667eea', color: step.done ? '#666' : '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}>
+                    {step.btn}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Dicas rápidas */}
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <h3 style={{ margin: '0 0 16px', color: '#333' }}>💡 Dicas rápidas</h3>
+            <div style={{ display: 'grid', gap: '10px' }}>
+              {[
+                ['📱', 'Instale o app no celular', 'Abra o cardápio no Chrome e toque em "Adicionar à tela inicial" para usar como app.'],
+                ['🔄', 'Atualize o status dos pedidos', 'Marque como "Em preparo", "Pronto" e "Entregue" — o cliente acompanha em tempo real.'],
+                ['📸', 'Foto faz vender mais', 'Produtos com foto vendem até 3× mais. Adicione imagens em alta qualidade.'],
+                ['🎯', 'Categorias organizam o cardápio', 'Crie categorias como "Promoções", "Mais pedidos" para destacar produtos.'],
+                ['💰', 'Configure o PIX antes de divulgar', 'Sem PIX cadastrado o cliente não consegue finalizar o pedido com pagamento online.'],
+              ].map(([icon, title, tip]) => (
+                <div key={title} style={{ display: 'flex', gap: '12px', padding: '12px', background: '#f9f9f9', borderRadius: '8px' }}>
+                  <span style={{ fontSize: '20px', flexShrink: 0 }}>{icon}</span>
+                  <div>
+                    <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#333', marginBottom: '2px' }}>{title}</div>
+                    <div style={{ fontSize: '13px', color: '#666', lineHeight: '1.4' }}>{tip}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     );
