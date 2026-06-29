@@ -137,6 +137,10 @@ const Select = ({ label, id, children, ...props }) => (
   </div>
 );
 
+// ─── WHITE-LABEL: emoji por tipo de negócio ──────────────────────────────────
+const BIZ_EMOJIS = { acai:'🫐', confeitaria:'🎂', pizzaria:'🍕', hamburgueria:'🍔', restaurante:'🍽️', mercado:'🛒', outro:'🏪' };
+const getBizEmoji = (settings) => BIZ_EMOJIS[settings?.business_type] || '🏪';
+
 // ─── BOTÃO DE INSTALAÇÃO PWA ─────────────────────────────────────────────────
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
 const isInStandaloneMode = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
@@ -156,7 +160,7 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
 
           {/* Linha 1: Nome ←→ Sair | Plano */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px' }}>
-            <h1 style={{ margin: 0, fontSize: '17px', color: '#667eea', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>🫐 {user?.name || 'Admin'}</h1>
+            <h1 style={{ margin: 0, fontSize: '17px', color: '#667eea', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getBizEmoji(vendorSettings)} {user?.name || 'Admin'}</h1>
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
               <button onClick={onLogout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🚪 Sair</button>
               <button onClick={() => onNavigate('plans')} style={{
@@ -236,11 +240,17 @@ export default function App() {
   const [planStatus, setPlanStatus]   = useState(null);
   const [stripeTestMode, setStripeTestMode] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const DEFAULT_CATEGORIES = [
-    { id: 'base', label: 'Açaís', emoji: '🫐', enabled: true },
-    { id: 'bebidas', label: 'Bebidas', emoji: '🥤', enabled: true },
-    { id: 'adicionais', label: 'Adicionais', emoji: '➕', enabled: true },
-  ];
+  const BUSINESS_TYPES = {
+    acai:         { label: 'Açaí',              emoji: '🫐', cats: [{ id:'base',       label:'Açaís',      emoji:'🫐', enabled:true },{ id:'bebidas', label:'Bebidas', emoji:'🥤', enabled:true },{ id:'adicionais', label:'Adicionais', emoji:'➕', enabled:true }] },
+    confeitaria:  { label: 'Confeitaria/Bolos', emoji: '🎂', cats: [{ id:'bolos',      label:'Bolos',      emoji:'🎂', enabled:true },{ id:'doces',   label:'Doces',   emoji:'🍬', enabled:true },{ id:'salgados',   label:'Salgados',   emoji:'🥐', enabled:true }] },
+    pizzaria:     { label: 'Pizzaria',          emoji: '🍕', cats: [{ id:'pizzas',     label:'Pizzas',     emoji:'🍕', enabled:true },{ id:'bebidas', label:'Bebidas', emoji:'🥤', enabled:true },{ id:'sobremesas',  label:'Sobremesas', emoji:'🍰', enabled:true }] },
+    hamburgueria: { label: 'Hamburgueria',      emoji: '🍔', cats: [{ id:'burgers',    label:'Burgers',    emoji:'🍔', enabled:true },{ id:'bebidas', label:'Bebidas', emoji:'🥤', enabled:true },{ id:'complementos',label:'Acompanham.',emoji:'🍟', enabled:true }] },
+    restaurante:  { label: 'Restaurante',       emoji: '🍽️', cats: [{ id:'pratos',    label:'Pratos',     emoji:'🍽️', enabled:true },{ id:'bebidas', label:'Bebidas', emoji:'🥤', enabled:true },{ id:'sobremesas',  label:'Sobremesas', emoji:'🍰', enabled:true }] },
+    mercado:      { label: 'Mercado/Loja',      emoji: '🛒', cats: [{ id:'produtos',   label:'Produtos',   emoji:'🛒', enabled:true },{ id:'bebidas', label:'Bebidas', emoji:'🥤', enabled:true }] },
+    outro:        { label: 'Outro',             emoji: '🏪', cats: [{ id:'produtos',   label:'Produtos',   emoji:'🏪', enabled:true },{ id:'bebidas', label:'Bebidas', emoji:'🥤', enabled:true }] },
+  };
+  const getBizType = (settings) => BUSINESS_TYPES[settings?.business_type] || BUSINESS_TYPES.acai;
+  const DEFAULT_CATEGORIES = getBizType(vendorSettings).cats;
   const getCategories = (raw) => (Array.isArray(raw) && raw.length ? raw : DEFAULT_CATEGORIES);
   const [loading, setLoading]         = useState(false);
   const [alert, setAlert]             = useState({ msg: '', type: '' });
@@ -733,7 +743,7 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
               {storeInfo?.logo_url
                 ? <img src={storeInfo.logo_url} alt="" style={{ height: '40px', width: '40px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
-                : <span style={{ fontSize: '28px', flexShrink: 0 }}>🫐</span>
+                : <span style={{ fontSize: '28px', flexShrink: 0 }}>{getBizEmoji(storeInfo)}</span>
               }
               <h1 style={{ margin: 0, fontSize: '20px', color: '#667eea', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{storeInfo?.name || 'Açaí Shop'}</h1>
             </div>
@@ -786,11 +796,11 @@ export default function App() {
           <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '16px', padding: '20px 24px', marginBottom: '24px', color: '#fff', display: 'flex', alignItems: 'center', gap: '16px' }}>
             {storeInfo?.logo_url
               ? <img src={storeInfo.logo_url} alt="" style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '12px', flexShrink: 0, border: '2px solid rgba(255,255,255,0.3)' }} />
-              : <div style={{ fontSize: '44px', flexShrink: 0 }}>🫐</div>
+              : <div style={{ fontSize: '44px', flexShrink: 0 }}>{getBizEmoji(storeInfo)}</div>
             }
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 'bold', fontSize: '20px', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{storeInfo?.name || 'Açaí Shop'}</div>
-              <div style={{ opacity: 0.85, fontSize: '14px', lineHeight: '1.4' }}>{storeInfo?.description || 'Bem-vindo! Escolha seu açaí favorito 🫐'}</div>
+              <div style={{ fontWeight: 'bold', fontSize: '20px', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{storeInfo?.name || 'Cardápio'}</div>
+              <div style={{ opacity: 0.85, fontSize: '14px', lineHeight: '1.4' }}>{storeInfo?.description || `Bem-vindo! Confira nosso cardápio ${getBizEmoji(storeInfo)}`}</div>
             </div>
           </div>
 
@@ -1327,9 +1337,9 @@ export default function App() {
           <button onClick={() => { window.history.replaceState({}, '', '/'); setScreen(user ? 'admin' : 'menu'); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px 16px', borderRadius: '8px', marginBottom: '32px', fontSize: '14px', fontWeight: 'bold' }}>← Voltar</button>
 
           <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '12px' }}>🫐</div>
+            <div style={{ fontSize: '48px', marginBottom: '12px' }}>🏪</div>
             <h1 style={{ margin: 0, color: '#fff', fontSize: '32px' }}>Escolha seu plano</h1>
-            <p style={{ color: 'rgba(255,255,255,0.85)', marginTop: '8px', fontSize: '16px' }}>Gerencie seu negócio de açaí com facilidade</p>
+            <p style={{ color: 'rgba(255,255,255,0.85)', marginTop: '8px', fontSize: '16px' }}>Gerencie seu negócio com facilidade</p>
           </div>
 
           {stripeTestMode && (
@@ -1348,7 +1358,7 @@ export default function App() {
             <div>
               <div style={{ fontSize: '11px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>💎 Premium — Multilojas</div>
               <div style={{ color: '#fff', fontSize: '14px', marginBottom: '4px' }}>Até 3 lojas · Suporte prioritário 24h · API · Relatórios avançados</div>
-              <div style={{ fontSize: '12px', color: '#888' }}>Somente anual · Para redes e franquias de açaí</div>
+              <div style={{ fontSize: '12px', color: '#888' }}>Somente anual · Para redes e franquias</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff', lineHeight: 1 }}>R$ 590</div>
@@ -2420,7 +2430,7 @@ export default function App() {
       <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
         <div style={{ background: '#fff', borderRadius: '20px', padding: '36px 28px', maxWidth: '560px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
           <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-            <div style={{ fontSize: '40px', marginBottom: '6px' }}>🫐</div>
+            <div style={{ fontSize: '40px', marginBottom: '6px' }}>🏪</div>
             <h1 style={{ margin: '0 0 4px', fontSize: '21px', color: '#333' }}>Comece com 14 dias grátis</h1>
             <p style={{ margin: 0, fontSize: '13px', color: '#999' }}>Sem cartão de crédito. Cancele quando quiser.</p>
           </div>
@@ -2509,12 +2519,13 @@ export default function App() {
         const data = await apiFetch('/auth/register-vendor', {
           method: 'POST',
           body: JSON.stringify({
-            name:     e.target.name.value.trim(),
-            email:    e.target.email.value.trim(),
-            password: regPassword,
-            phone:    e.target.phone.value.trim(),
-            address:  e.target.address.value.trim(),
-            cpf:      e.target.cpf.value.trim(),
+            name:          e.target.name.value.trim(),
+            email:         e.target.email.value.trim(),
+            password:      regPassword,
+            phone:         e.target.phone.value.trim(),
+            address:       e.target.address.value.trim(),
+            cpf:           e.target.cpf.value.trim(),
+            business_type: e.target.business_type.value,
           }),
         });
         if (data.token) authToken = data.token;
@@ -2528,13 +2539,22 @@ export default function App() {
       <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
         <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', maxWidth: '480px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
           <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '8px' }}>🫐</div>
+            <div style={{ fontSize: '48px', marginBottom: '8px' }}>🏪</div>
             <h1 style={{ margin: '0 0 6px 0', fontSize: '24px', color: '#333' }}>Criar sua conta</h1>
             <p style={{ margin: 0, fontSize: '14px', color: '#999' }}>14 dias grátis, sem cartão</p>
           </div>
           <Alert msg={alert.msg} type={alert.type} />
           <form onSubmit={handleRegister}>
-            <Input label="Nome da loja / Responsável *" id="name" name="name" required placeholder="Açaí do João" />
+            <Select label="Tipo de negócio *" name="business_type" required>
+              <option value="acai">🫐 Açaí</option>
+              <option value="confeitaria">🎂 Confeitaria / Bolos</option>
+              <option value="pizzaria">🍕 Pizzaria</option>
+              <option value="hamburgueria">🍔 Hamburgueria</option>
+              <option value="restaurante">🍽️ Restaurante</option>
+              <option value="mercado">🛒 Mercado / Loja</option>
+              <option value="outro">🏪 Outro</option>
+            </Select>
+            <Input label="Nome da loja / Responsável *" id="name" name="name" required placeholder="Nome do seu estabelecimento" />
             <Input label="Email *" id="email" name="email" type="email" required placeholder="joao@email.com" />
             <div style={{ marginBottom: '15px' }}>
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', color: '#444', fontSize: '14px' }}>Senha *</label>

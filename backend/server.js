@@ -549,7 +549,7 @@ app.get('/api/store/:slug', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('vendors')
-      .select('name, slug, deliveries_enabled, delivery_fee, pix_key, logo_url, categories')
+      .select('name, slug, deliveries_enabled, delivery_fee, pix_key, logo_url, categories, business_type')
       .eq('slug', req.params.slug)
       .eq('status', 'active')
       .single();
@@ -709,7 +709,9 @@ app.get('/api/auth/me', auth, (req, res) => {
 // ============================================
 app.post('/api/auth/register-vendor', async (req, res) => {
   try {
-    const { email, password, name, phone, address, cpf } = req.body;
+    const { email, password, name, phone, address, cpf, business_type } = req.body;
+    const VALID_BIZ_TYPES = ['acai','confeitaria','pizzaria','hamburgueria','restaurante','mercado','outro'];
+    const bizType = VALID_BIZ_TYPES.includes(business_type) ? business_type : 'outro';
 
     if (!email || !password || !name || !phone || !address || !cpf)
       return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
@@ -753,6 +755,7 @@ app.post('/api/auth/register-vendor', async (req, res) => {
       .from('vendors')
       .insert({
         email, password: hashed, name, phone, address, cpf, slug,
+        business_type: bizType,
         email_confirm_token:   confirmToken,
         email_confirm_expires: confirmExpires.toISOString(),
       })
@@ -1666,10 +1669,9 @@ app.get('/api/vendors/settings', auth, async (req, res) => {
   try {
     let { data, error } = await supabase
       .from('vendors')
-      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token, categories')
+      .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token, categories, business_type')
       .eq('id', req.user.id).single();
-    if (error && error.message?.includes('categories')) {
-      // Coluna categories ainda não existe — busca sem ela
+    if (error && (error.message?.includes('categories') || error.message?.includes('business_type'))) {
       ({ data, error } = await supabase
         .from('vendors')
         .select('deliveries_enabled, slug, name, delivery_fee, pix_key, logo_url, zapi_instance_id, zapi_token, zapi_client_token')
