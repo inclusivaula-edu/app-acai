@@ -781,7 +781,7 @@ export default function App() {
             <Alert msg={alert.msg} type={alert.type} />
           </div>
         )}
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px 16px' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px 16px', paddingBottom: totalItems > 0 ? '100px' : '20px' }}>
           {/* Banner da loja */}
           <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '16px', padding: '20px 24px', marginBottom: '24px', color: '#fff', display: 'flex', alignItems: 'center', gap: '16px' }}>
             {storeInfo?.logo_url
