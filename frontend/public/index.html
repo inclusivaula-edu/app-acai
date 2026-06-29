@@ -16,7 +16,10 @@
     <title>Açaí Shop 🫐</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        overscroll-behavior-y: none; /* impede pull-to-refresh nativo no mobile */
+      }
       #root { min-height: 100vh; }
 
       /* ── Admin header nav grid ─────────────────────────────────────────── */

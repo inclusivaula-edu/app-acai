@@ -53,6 +53,8 @@ app.use(cors({
 app.use(cookieParser());
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/webhooks/stripe') return next();
+  if (/\/upload-image$/.test(req.originalUrl)) return next(); // binary body — handled by express.raw per-route
+  if (/\/api\/vendors\/logo$/.test(req.originalUrl)) return next();
   express.json({ limit: '100kb' })(req, res, next);
 });
 
@@ -1812,8 +1814,9 @@ app.put('/api/products/:id/upload-image', [auth, planCheck, express.raw({ type: 
     if (error) return sbErr(error, res);
 
     res.json({ message: 'Imagem atualizada', image_url: cacheBustedUrl, product: data });
-  } catch {
-    res.status(500).json({ error: 'Erro interno ao fazer upload' });
+  } catch (err) {
+    console.error('upload-image error:', err);
+    res.status(500).json({ error: err.message || 'Erro interno ao fazer upload' });
   }
 });
 
