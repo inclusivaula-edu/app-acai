@@ -1,7 +1,7 @@
 {
-  "name": "Açaí Shop",
-  "short_name": "Açaí Shop",
-  "description": "Peça seu açaí online",
+  "name": "App Cardápio",
+  "short_name": "Cardápio",
+  "description": "Gerencie seu cardápio online",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#667eea",
