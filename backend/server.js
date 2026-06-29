@@ -1783,8 +1783,9 @@ app.put('/api/products/:id/upload-image', [auth, planCheck, express.raw({ type: 
     if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'Arquivo de imagem obrigatório' });
 
     // Validar tipo real pelo magic bytes (não confiar no Content-Type do cliente)
-    const { fileTypeFromBuffer } = await import('file-type');
-    const detected = await fileTypeFromBuffer(req.body);
+    const fileType = require('file-type');
+    const fileTypeFromBuffer = fileType.fileTypeFromBuffer || fileType.default?.fileTypeFromBuffer;
+    const detected = fileTypeFromBuffer ? await fileTypeFromBuffer(req.body) : null;
     if (!detected || !ALLOWED_IMAGE_TYPES[detected.mime]) {
       return res.status(400).json({ error: 'Tipo de arquivo inválido. Envie JPG, PNG, WEBP ou GIF.' });
     }
@@ -1883,8 +1884,9 @@ app.put('/api/vendors/logo', [auth, express.raw({ type: '*/*', limit: '6mb' })],
   try {
     if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'Arquivo de imagem obrigatório' });
 
-    const { fileTypeFromBuffer } = await import('file-type');
-    const detected = await fileTypeFromBuffer(req.body);
+    const fileType2 = require('file-type');
+    const fileTypeFromBuffer2 = fileType2.fileTypeFromBuffer || fileType2.default?.fileTypeFromBuffer;
+    const detected = fileTypeFromBuffer2 ? await fileTypeFromBuffer2(req.body) : null;
     if (!detected || !ALLOWED_IMAGE_TYPES[detected.mime]) {
       return res.status(400).json({ error: 'Tipo de arquivo inválido. Envie JPG, PNG, WEBP ou GIF.' });
     }
