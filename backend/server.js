@@ -716,6 +716,12 @@ app.post('/api/auth/register-vendor', async (req, res) => {
     if (!isValidEmail(email)) return res.status(400).json({ error: 'Email inválido' });
     if (password.length < 8)
       return res.status(400).json({ error: 'Senha deve ter mínimo 8 caracteres' });
+    if (!/[A-Z]/.test(password))
+      return res.status(400).json({ error: 'Senha deve conter ao menos uma letra maiúscula' });
+    if (!/[0-9]/.test(password))
+      return res.status(400).json({ error: 'Senha deve conter ao menos um número' });
+    if (!/[^A-Za-z0-9]/.test(password))
+      return res.status(400).json({ error: 'Senha deve conter ao menos um caractere especial (!@#$%...)' });
 
     const { data: existing } = await supabase
       .from('vendors')

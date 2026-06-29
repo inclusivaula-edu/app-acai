@@ -2490,15 +2490,28 @@ export default function App() {
   }
 
   if (screen === 'register') {
+    const [regPassword, setRegPassword] = useState('');
+    const pwChecks = {
+      len:     regPassword.length >= 8,
+      upper:   /[A-Z]/.test(regPassword),
+      number:  /[0-9]/.test(regPassword),
+      special: /[^A-Za-z0-9]/.test(regPassword),
+    };
+    const pwStrength = Object.values(pwChecks).filter(Boolean).length;
+    const pwColors = ['#ddd','#e74c3c','#f39c12','#f39c12','#2ecc71'];
+    const pwLabels = ['','Fraca','Fraca','Média','Forte'];
+
     const handleRegister = async (e) => {
-      e.preventDefault(); setLoading(true);
+      e.preventDefault();
+      if (!Object.values(pwChecks).every(Boolean)) { showAlert('A senha não atende todos os requisitos'); return; }
+      setLoading(true);
       try {
         const data = await apiFetch('/auth/register-vendor', {
           method: 'POST',
           body: JSON.stringify({
             name:     e.target.name.value.trim(),
             email:    e.target.email.value.trim(),
-            password: e.target.password.value,
+            password: regPassword,
             phone:    e.target.phone.value.trim(),
             address:  e.target.address.value.trim(),
             cpf:      e.target.cpf.value.trim(),
@@ -2523,7 +2536,34 @@ export default function App() {
           <form onSubmit={handleRegister}>
             <Input label="Nome da loja / Responsável *" id="name" name="name" required placeholder="Açaí do João" />
             <Input label="Email *" id="email" name="email" type="email" required placeholder="joao@email.com" />
-            <Input label="Senha * (mínimo 8 caracteres)" id="password" name="password" type="password" required placeholder="••••••••" minLength={8} />
+            <div style={{ marginBottom: '15px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: '600', color: '#444', fontSize: '14px' }}>Senha *</label>
+              <input
+                type="password" value={regPassword} onChange={e => setRegPassword(e.target.value)}
+                required placeholder="••••••••"
+                style={{ width: '100%', padding: '10px 14px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
+              />
+              {regPassword.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                    {[1,2,3,4].map(i => (
+                      <div key={i} style={{ flex: 1, height: '4px', borderRadius: '2px', background: i <= pwStrength ? pwColors[pwStrength] : '#eee', transition: 'background 0.2s' }} />
+                    ))}
+                    <span style={{ fontSize: '11px', color: pwColors[pwStrength], fontWeight: 'bold', marginLeft: '6px', whiteSpace: 'nowrap' }}>{pwLabels[pwStrength]}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px' }}>
+                    {[
+                      [pwChecks.len,     '8+ caracteres'],
+                      [pwChecks.upper,   'Letra maiúscula'],
+                      [pwChecks.number,  'Número'],
+                      [pwChecks.special, 'Caractere especial'],
+                    ].map(([ok, label]) => (
+                      <span key={label} style={{ fontSize: '12px', color: ok ? '#2ecc71' : '#999' }}>{ok ? '✓' : '○'} {label}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px' }}>
               <Input label="Telefone *" id="phone" name="phone" type="tel" required placeholder="(11) 99999-0000" />
               <Input label="CPF *" id="cpf" name="cpf" required placeholder="000.000.000-00" />
