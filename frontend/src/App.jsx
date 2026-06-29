@@ -154,28 +154,30 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
       <div style={{ padding: '10px 16px' }}>
         <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
 
-          {/* Linha 1: Nome ←→ Plano */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <h1 style={{ margin: 0, fontSize: '17px', color: '#667eea', whiteSpace: 'nowrap' }}>🫐 {user?.name || 'Admin'}</h1>
-            <button onClick={() => onNavigate('plans')} style={{
-              background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1',
-              border: 'none',
-              color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17',
-              cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap',
-            }}>
-              {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '✓ Plano Ativo' : planStatus?.plan === 'trial' ? `⏳ ${planStatus.trial_days_left ?? '?'}d trial` : '⚠️ Planos'}
-            </button>
+          {/* Linha 1: Nome ←→ Sair | Plano */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '8px' }}>
+            <h1 style={{ margin: 0, fontSize: '17px', color: '#667eea', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>🫐 {user?.name || 'Admin'}</h1>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+              <button onClick={onLogout} style={{ background: '#ffebee', border: 'none', color: '#c62828', cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🚪 Sair</button>
+              <button onClick={() => onNavigate('plans')} style={{
+                background: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#e8f5e9' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#ffebee' : '#fff8e1',
+                border: 'none',
+                color: planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '#2e7d32' : (planStatus?.trial_days_left ?? 99) <= 3 ? '#c62828' : '#f57f17',
+                cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap',
+              }}>
+                {planStatus?.plan !== 'trial' && planStatus?.plan_status === 'active' ? '✓ Plano Ativo' : planStatus?.plan === 'trial' ? `⏳ ${planStatus.trial_days_left ?? '?'}d trial` : '⚠️ Planos'}
+              </button>
+            </div>
           </div>
 
-          {/* Linhas 2+: grade 3 colunas com todas as ações */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+          {/* Linha 2: navegação — 3 cols mobile / 6 cols desktop */}
+          <div className="admin-nav-grid">
             {[
               { s: 'admin',             icon: '📊', label: 'Dashboard' },
               { s: 'orders-admin',      icon: '📦', label: 'Pedidos' },
               { s: 'products-admin',    icon: '🛍️', label: 'Produtos' },
               { s: 'deliverers-admin',  icon: '⚙️', label: 'Configuração' },
               { s: 'commissions-admin', icon: '💰', label: 'Comissões' },
-              { s: 'messages-admin',    icon: '💬', label: 'Mensagens' },
               {
                 s: '__cardapio__', icon: '🔗', label: 'Ver Cardápio',
                 onClick: () => {
@@ -183,12 +185,7 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
                   if (slug) window.open(`${window.location.origin}${window.location.pathname}?loja=${slug}`, '_blank');
                   else showAlert('Configure o link da loja primeiro', 'error');
                 },
-                style: { background: '#f5f5f5', color: '#555' },
-              },
-              {
-                s: '__sair__', icon: '🚪', label: 'Sair',
-                onClick: onLogout,
-                style: { background: '#ffebee', color: '#c62828' },
+                style: { background: '#f0e7ff', color: '#667eea' },
               },
             ].map(({ s, icon, label, onClick, style: extra = {} }) => (
               <button
@@ -731,33 +728,32 @@ export default function App() {
     const totalPrice = cart.reduce((s, i) => s + i.price * i.quantity, 0);
     return (
       <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
-        <div style={{ background: '#fff', padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
-          <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ background: '#fff', padding: '12px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
+          <div style={{ maxWidth: '1200px', margin: '0 auto' }} className="menu-header-wrap">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
               {storeInfo?.logo_url
-                ? <img src={storeInfo.logo_url} alt="" style={{ height: '40px', width: '40px', objectFit: 'cover', borderRadius: '8px' }} />
-                : <span style={{ fontSize: '28px' }}>🫐</span>
+                ? <img src={storeInfo.logo_url} alt="" style={{ height: '40px', width: '40px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+                : <span style={{ fontSize: '28px', flexShrink: 0 }}>🫐</span>
               }
-              <h1 style={{ margin: 0, fontSize: '22px', color: '#667eea' }}>{storeInfo?.name || 'Açaí Shop'}</h1>
+              <h1 style={{ margin: 0, fontSize: '20px', color: '#667eea', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{storeInfo?.name || 'Açaí Shop'}</h1>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {/* Botão instalar PWA no menu */}
+            <div className="menu-header-actions">
               {!isInStandaloneMode() && !installed && installPrompt && (
                 <button
                   onClick={async () => { installPrompt.prompt(); const r = await installPrompt.userChoice; if (r.outcome === 'accepted') setInstalled(true); setInstallPrompt(null); }}
-                  style={{ background: '#25D366', color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 13px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+                  style={{ background: '#25D366', color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 13px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >📲 Instalar</button>
               )}
               {user?.role === 'vendor' && (
                 <>
-                  <button onClick={() => setScreen('admin')} style={{ background: '#f0e7ff', border: 'none', color: '#667eea', cursor: 'pointer', padding: '7px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>📊 Admin</button>
-                  <button onClick={() => setScreen('plans')} style={{ background: 'none', border: '1px solid #ddd', color: '#667eea', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>Ver Planos</button>
+                  <button onClick={() => setScreen('admin')} style={{ background: '#f0e7ff', border: 'none', color: '#667eea', cursor: 'pointer', padding: '7px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>📊 Admin</button>
+                  <button onClick={() => setScreen('plans')} style={{ background: 'none', border: '1px solid #ddd', color: '#667eea', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Ver Planos</button>
                 </>
               )}
               {user ? (
-                <button onClick={logout} style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px' }}><LogOut size={14} /> Sair</button>
+                <button onClick={logout} style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '13px', whiteSpace: 'nowrap' }}><LogOut size={14} /> Sair</button>
               ) : (
-                <button onClick={() => setScreen('login')} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}><Lock size={12} /> Lojista</button>
+                <button onClick={() => setScreen('login')} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', whiteSpace: 'nowrap' }}><Lock size={12} /> Lojista</button>
               )}
             </div>
           </div>
@@ -785,7 +781,19 @@ export default function App() {
             <Alert msg={alert.msg} type={alert.type} />
           </div>
         )}
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px 20px' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px 16px' }}>
+          {/* Banner da loja */}
+          <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '16px', padding: '20px 24px', marginBottom: '24px', color: '#fff', display: 'flex', alignItems: 'center', gap: '16px' }}>
+            {storeInfo?.logo_url
+              ? <img src={storeInfo.logo_url} alt="" style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '12px', flexShrink: 0, border: '2px solid rgba(255,255,255,0.3)' }} />
+              : <div style={{ fontSize: '44px', flexShrink: 0 }}>🫐</div>
+            }
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 'bold', fontSize: '20px', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{storeInfo?.name || 'Açaí Shop'}</div>
+              <div style={{ opacity: 0.85, fontSize: '14px', lineHeight: '1.4' }}>{storeInfo?.description || 'Bem-vindo! Escolha seu açaí favorito 🫐'}</div>
+            </div>
+          </div>
+
           {(() => {
             const activeCat = selectedCategory ?? getCategories(storeInfo?.categories).filter(c => c.enabled !== false)[0]?.id;
             const visibleProducts = products.filter(p => p.category === activeCat && p.available !== false);
@@ -1777,7 +1785,7 @@ export default function App() {
     if (!sessionLoaded) return null;
     if (!user) { setScreen('login'); return null; }
 
-    const openNew = () => { setProductForm({ name: '', description: '', price: '', category: 'base', emoji: '🫐', calories: '', ingredients: '', allergens: '' }); setEditingProduct(null); setShowProductForm(true); };
+    const openNew = () => { const firstCat = getCategories(vendorSettings?.categories)[0]?.id || 'base'; setProductForm({ name: '', description: '', price: '', category: firstCat, emoji: '🫐', calories: '', ingredients: '', allergens: '' }); setEditingProduct(null); setShowProductForm(true); };
     const openEdit = (p) => { setProductForm({ name: p.name, description: p.description || '', price: p.price, category: p.category, emoji: p.icon || p.emoji || '🫐', calories: p.calories || '', ingredients: p.ingredients || '', allergens: p.allergens || '' }); setEditingProduct({ ...p }); setShowProductForm(true); };
 
     const uploadImage = async (productId, file) => {
@@ -1840,7 +1848,7 @@ export default function App() {
             <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', marginBottom: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
               <h3 style={{ marginTop: 0 }}>{editingProduct ? 'Editar Produto' : 'Novo Produto'}</h3>
               <form onSubmit={saveProduct}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '16px' }}>
+                <div className="product-form-grid">
                   <Input label="Nome *" value={productForm.name} onChange={e => setProductForm(f => ({...f, name: e.target.value}))} required placeholder="Açaí Tradicional" />
                   <Input label="Preço *" type="number" step="0.01" value={productForm.price} onChange={e => setProductForm(f => ({...f, price: e.target.value}))} required placeholder="24.90" />
                   <Select label="Categoria *" value={productForm.category} onChange={e => setProductForm(f => ({...f, category: e.target.value}))}>

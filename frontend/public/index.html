@@ -18,6 +18,57 @@
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
       #root { min-height: 100vh; }
+
+      /* ── Admin header nav grid ─────────────────────────────────────────── */
+      .admin-nav-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+      }
+      @media (min-width: 640px) {
+        .admin-nav-grid { grid-template-columns: repeat(6, 1fr); }
+      }
+
+      /* ── Menu header (cardápio público) ────────────────────────────────── */
+      .menu-header-wrap {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+      .menu-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      @media (max-width: 500px) {
+        .menu-header-wrap { flex-wrap: wrap; }
+        .menu-header-actions { width: 100%; justify-content: flex-end; }
+      }
+
+      /* ── Admin conteúdo ────────────────────────────────────────────────── */
+      .admin-page-inner {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 24px 16px;
+      }
+      @media (min-width: 768px) {
+        .admin-page-inner { padding: 28px 24px; }
+      }
+
+      /* ── Cards / grids ─────────────────────────────────────────────────── */
+      .product-form-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      @media (min-width: 540px) {
+        .product-form-grid { grid-template-columns: repeat(2, 1fr); }
+      }
+      @media (min-width: 900px) {
+        .product-form-grid { grid-template-columns: repeat(4, 1fr); }
+      }
     </style>
   </head>
   <body>
