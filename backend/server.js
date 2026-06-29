@@ -1778,15 +1778,23 @@ app.get('/api/admin/dashboard', [auth, planCheck], async (req, res) => {
 // ============================================
 const ALLOWED_IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
 
+// Detecta tipo de imagem pelos magic bytes sem depender do file-type package
+function detectImageType(buf) {
+  if (!buf || buf.length < 4) return null;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+  if (buf.length >= 12 && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
 app.put('/api/products/:id/upload-image', [auth, planCheck, express.raw({ type: '*/*', limit: '6mb' })], async (req, res) => {
   try {
     if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'Arquivo de imagem obrigatório' });
 
-    // Validar tipo real pelo magic bytes (não confiar no Content-Type do cliente)
-    const fileType = require('file-type');
-    const fileTypeFromBuffer = fileType.fileTypeFromBuffer || fileType.default?.fileTypeFromBuffer;
-    const detected = fileTypeFromBuffer ? await fileTypeFromBuffer(req.body) : null;
-    if (!detected || !ALLOWED_IMAGE_TYPES[detected.mime]) {
+    // Validar tipo real pelos magic bytes
+    const detectedMime = detectImageType(req.body);
+    if (!detectedMime) {
       return res.status(400).json({ error: 'Tipo de arquivo inválido. Envie JPG, PNG, WEBP ou GIF.' });
     }
 
@@ -1794,7 +1802,7 @@ app.put('/api/products/:id/upload-image', [auth, planCheck, express.raw({ type: 
       .from('products').select('id').eq('id', req.params.id).eq('vendor_id', req.user.id).single();
     if (!product) return res.status(404).json({ error: 'Produto não encontrado' });
 
-    const content_type = detected.mime;
+    const content_type = detectedMime;
     const ext  = ALLOWED_IMAGE_TYPES[content_type];
     const path = `${req.user.id}/${req.params.id}.${ext}`;
 
@@ -1884,14 +1892,12 @@ app.put('/api/vendors/logo', [auth, express.raw({ type: '*/*', limit: '6mb' })],
   try {
     if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'Arquivo de imagem obrigatório' });
 
-    const fileType2 = require('file-type');
-    const fileTypeFromBuffer2 = fileType2.fileTypeFromBuffer || fileType2.default?.fileTypeFromBuffer;
-    const detected = fileTypeFromBuffer2 ? await fileTypeFromBuffer2(req.body) : null;
-    if (!detected || !ALLOWED_IMAGE_TYPES[detected.mime]) {
+    const detectedMime2 = detectImageType(req.body);
+    if (!detectedMime2) {
       return res.status(400).json({ error: 'Tipo de arquivo inválido. Envie JPG, PNG, WEBP ou GIF.' });
     }
 
-    const content_type = detected.mime;
+    const content_type = detectedMime2;
     const ext  = ALLOWED_IMAGE_TYPES[content_type];
     const path = `${req.user.id}/logo.${ext}`;
 
@@ -1899,7 +1905,7 @@ app.put('/api/vendors/logo', [auth, express.raw({ type: '*/*', limit: '6mb' })],
     if (bErr) await supabase.storage.createBucket('vendor-logos', { public: true, fileSizeLimit: 5242880 });
 
     const { error: uploadErr } = await supabase.storage.from('vendor-logos').upload(path, req.body, {
-      contentType: detected.mime,
+      contentType: detectedMime2,
       upsert: true,
     });
     if (uploadErr) { console.error('Logo upload error:', uploadErr); return res.status(500).json({ error: 'Erro ao fazer upload da logo' }); }
