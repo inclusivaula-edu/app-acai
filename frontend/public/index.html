@@ -72,6 +72,20 @@
       @media (min-width: 900px) {
         .product-form-grid { grid-template-columns: repeat(4, 1fr); }
       }
+
+      /* ── Abas de categoria do cardápio ─────────────────────────────────── */
+      .category-tabs {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+      @media (max-width: 540px) {
+        .category-tabs {
+          flex-wrap: wrap;
+          overflow-x: visible;
+        }
+      }
     </style>
   </head>
   <body>

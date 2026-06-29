@@ -763,7 +763,7 @@ export default function App() {
             const enabledCats = getCategories(storeInfo?.categories).filter(c => c.enabled !== false);
             const activeCat = selectedCategory ?? enabledCats[0]?.id;
             return (
-              <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '4px' }}>
+              <div style={{ maxWidth: '1200px', margin: '0 auto' }} className="category-tabs">
                 {enabledCats.map(cat => (
                   <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} style={{
                     padding: '8px 20px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0,
