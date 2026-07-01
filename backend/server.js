@@ -309,11 +309,10 @@ app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (r
     const { type, data } = req.body;
     if (!data?.id) return;
 
-    // Evento de assinatura (cobrança recorrente autorizada)
+    // Evento de assinatura: verifica status da assinatura
     if (type === 'subscription_preapproval') {
       const { status: hs, data: sub } = await mpRequest('GET', `/preapproval/${data.id}`);
       if (hs !== 200) return;
-
       const [vendor_id, plan_id] = (sub.external_reference || '').split('|');
       if (!vendor_id || !PLANS[plan_id]) return;
 
@@ -322,28 +321,54 @@ app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (r
         const expiresAt = new Date();
         expiresAt.setMonth(expiresAt.getMonth() + months);
         await supabase.from('vendors').update({
-          plan: plan_id,
-          plan_status: 'active',
+          plan: plan_id, plan_status: 'active',
           plan_expires_at: expiresAt.toISOString(),
           mp_payment_id: String(sub.id),
         }).eq('id', vendor_id);
-        console.log(`✅ Assinatura ${plan_id} ativada para vendor ${vendor_id}`);
-      }
-
-      if (sub.status === 'cancelled' || sub.status === 'paused') {
-        await supabase.from('vendors').update({ plan_status: sub.status === 'paused' ? 'past_due' : 'canceled' }).eq('id', vendor_id);
+        console.log(`✅ Assinatura ${plan_id} ativada vendor ${vendor_id}`);
+      } else if (sub.status === 'cancelled') {
+        await supabase.from('vendors').update({ plan_status: 'canceled' }).eq('id', vendor_id);
+      } else if (sub.status === 'paused') {
+        await supabase.from('vendors').update({ plan_status: 'past_due' }).eq('id', vendor_id);
       }
       return;
     }
 
-    // Evento de pagamento avulso (fallback)
+    // Evento de pagamento: cobre tanto cobrança de assinatura quanto pagamento avulso
     if (type === 'payment') {
       const { status: hs, data: payment } = await mpRequest('GET', `/v1/payments/${data.id}`);
       if (hs !== 200) return;
+
+      // Se é pagamento de assinatura, busca a assinatura pelo preapproval_id
+      if (payment.preapproval_id) {
+        const { status: hs2, data: sub } = await mpRequest('GET', `/preapproval/${payment.preapproval_id}`);
+        if (hs2 !== 200) return;
+        const [vendor_id, plan_id] = (sub.external_reference || '').split('|');
+        if (!vendor_id || !PLANS[plan_id]) return;
+
+        if (payment.status === 'approved') {
+          // Renova por mais 1 mês a cada pagamento aprovado
+          const { data: vendor } = await supabase.from('vendors').select('plan_expires_at').eq('id', vendor_id).single();
+          const base = vendor?.plan_expires_at && new Date(vendor.plan_expires_at) > new Date()
+            ? new Date(vendor.plan_expires_at) : new Date();
+          base.setMonth(base.getMonth() + 1);
+          await supabase.from('vendors').update({
+            plan: plan_id, plan_status: 'active',
+            plan_expires_at: base.toISOString(),
+            mp_payment_id: String(payment.id),
+          }).eq('id', vendor_id);
+          console.log(`✅ Pagamento assinatura ${plan_id} aprovado vendor ${vendor_id}`);
+        } else if (payment.status === 'rejected') {
+          await supabase.from('vendors').update({ plan_status: 'past_due' }).eq('id', vendor_id);
+        }
+        return;
+      }
+
+      // Pagamento avulso (external_reference = vendor_id|plan_id)
       const [vendor_id, plan_id] = (payment.external_reference || '').split('|');
       if (!vendor_id || !PLANS[plan_id]) return;
       if (payment.status === 'approved') {
-        const months = PLANS[plan_id].months;
+        const months = PLANS[plan_id].months || 1;
         const expiresAt = new Date();
         expiresAt.setMonth(expiresAt.getMonth() + months);
         await supabase.from('vendors').update({
