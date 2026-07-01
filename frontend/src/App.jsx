@@ -758,12 +758,6 @@ export default function App() {
                   style={{ background: '#25D366', color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 13px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >📲 Instalar</button>
               )}
-              {user?.role === 'vendor' && (
-                <button onClick={() => setScreen('admin')} style={{ background: '#f0e7ff', border: 'none', color: '#667eea', cursor: 'pointer', padding: '7px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>📊 Admin</button>
-              )}
-              {!user && (
-                <button onClick={() => setScreen('login')} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', whiteSpace: 'nowrap' }}><Lock size={12} /> Lojista</button>
-              )}
             </div>
           </div>
         </div>
