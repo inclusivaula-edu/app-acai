@@ -58,25 +58,29 @@ app.use((req, res, next) => {
   express.json({ limit: '100kb' })(req, res, next);
 });
 
-// ── Rate limiting ──────────────────────────────
-function makeRateLimiter(windowMs, max, message) {
-  const hits = new Map();
-  return (req, res, next) => {
-    const key = req.ip;
-    const now = Date.now();
-    // Limpar entradas antigas
-    for (const [k, v] of hits) { if (now - v.start > windowMs) hits.delete(k); }
-    const d = hits.get(key);
-    if (!d || now - d.start > windowMs) { hits.set(key, { count: 1, start: now }); return next(); }
-    if (d.count++ >= max) return res.status(429).json({ error: message });
-    next();
-  };
-}
+// ── Rate limiting (express-rate-limit) ────────
+const rateLimit = require('express-rate-limit');
+
+const rateLimitHandler = (message) => (req, res) =>
+  res.status(429).json({ error: message });
 
 // Global: 300 req / 15 min por IP
-const globalLimiter = makeRateLimiter(15 * 60 * 1000, 300, 'Muitas requisições. Aguarde 15 minutos.');
-// Auth: 10 tentativas / 15 min por IP (proteção contra brute-force)
-const authLimiter   = makeRateLimiter(15 * 60 * 1000, 10, 'Muitas tentativas de login. Aguarde 15 minutos.');
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler('Muitas requisições. Aguarde 15 minutos.'),
+});
+
+// Auth: 10 tentativas / 15 min por IP (brute-force)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler('Muitas tentativas. Aguarde 15 minutos.'),
+});
 
 app.use(globalLimiter);
 app.use('/api/auth/login',           authLimiter);
