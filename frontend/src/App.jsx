@@ -262,6 +262,27 @@ export default function App() {
   const [installed, setInstalled]     = useState(false);
   const installPromptRef = useRef(null);
   const promptShown      = useRef(false);
+  const knownOrderIds    = useRef(null); // null = primeira carga, não toca som
+
+  const playOrderAlert = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const play = (freq, start, dur) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = freq;
+        o.type = 'sine';
+        g.gain.setValueAtTime(0.4, ctx.currentTime + start);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        o.start(ctx.currentTime + start);
+        o.stop(ctx.currentTime + start + dur + 0.05);
+      };
+      play(880, 0,    0.15);
+      play(1100, 0.18, 0.15);
+      play(1320, 0.36, 0.25);
+    } catch {}
+  };
   const [trackingOrderId, setTrackingOrderId] = useState(initTrackId);
   const [trackedOrder, setTrackedOrder]       = useState(null);
 
@@ -466,7 +487,18 @@ export default function App() {
   const fetchOrders = async () => {
     try {
       const data = await apiFetch('/orders');
-      setOrders(Array.isArray(data) ? data.map(o => ({ ...o, id: o._id || o.id })) : []);
+      const mapped = Array.isArray(data) ? data.map(o => ({ ...o, id: o._id || o.id })) : [];
+      if (knownOrderIds.current === null) {
+        // primeira carga: apenas registra os IDs existentes, sem tocar som
+        knownOrderIds.current = new Set(mapped.map(o => o.id));
+      } else {
+        const novos = mapped.filter(o => !knownOrderIds.current.has(o.id));
+        if (novos.length > 0) {
+          playOrderAlert();
+          novos.forEach(o => knownOrderIds.current.add(o.id));
+        }
+      }
+      setOrders(mapped);
     } catch (err) { handleFetchError(err); }
   };
 
