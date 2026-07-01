@@ -464,7 +464,7 @@ export default function App() {
       } catch { setTrackedOrder(null); }
     };
     fetchTracking();
-    const interval = setInterval(fetchTracking, 30000);
+    const interval = setInterval(fetchTracking, 15000);
     return () => clearInterval(interval);
   }, [screen, trackingOrderId]);
 
@@ -965,7 +965,8 @@ export default function App() {
         setLastOrder(data.order);
         setCart([]); setCustomerName(''); setCustomerPhone(''); setCustomerEmail('');
         setCustomerAddress(''); setCustomerComplement(''); setCheckoutDeliveryType('');
-        setScreen('confirmation');
+        setTrackingOrderId(data.order.id);
+        setScreen('order-tracking');
       } catch (err) { showAlert(err.message || 'Erro ao criar pedido'); }
       finally { setLoading(false); }
     };
@@ -1185,7 +1186,20 @@ export default function App() {
                     <span>R$ {Number(trackedOrder.total).toFixed(2)}</span>
                   </div>
                 </div>
-                <div style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', marginTop: '14px' }}>Atualizado automaticamente a cada 30 segundos</div>
+                <div style={{ fontSize: '12px', color: '#bbb', textAlign: 'center', marginTop: '14px' }}>Atualizado automaticamente a cada 15 segundos</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+                  <button
+                    onClick={() => {
+                      const url = `${window.location.origin}${window.location.pathname}?loja=${vendorSlug}&pedido=${trackingOrderId}`;
+                      navigator.clipboard.writeText(url).then(() => showAlert('Link copiado! Salve para acompanhar depois.', 'success'));
+                    }}
+                    style={{ width: '100%', background: '#f0e7ff', border: 'none', color: '#667eea', padding: '12px', borderRadius: '10px', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}
+                  >🔗 Copiar link do pedido</button>
+                  <button
+                    onClick={() => setScreen('menu')}
+                    style={{ width: '100%', background: 'none', border: '1px solid #e0e0e0', color: '#667eea', padding: '11px', borderRadius: '10px', fontSize: '14px', cursor: 'pointer' }}
+                  >+ Fazer novo pedido</button>
+                </div>
               </>
             )}
           </div>
