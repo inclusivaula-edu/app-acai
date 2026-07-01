@@ -26,11 +26,29 @@ if (missing.length) {
   process.exit(1);
 }
 
+// ── Avisos de segurança (não fatais) ──────────
+if (!process.env.MP_WEBHOOK_SECRET)
+  console.warn('⚠️  SEGURANÇA: MP_WEBHOOK_SECRET não configurado — webhook Mercado Pago aceita qualquer requisição!');
+if (!process.env.ZAPI_WEBHOOK_SECRET)
+  console.warn('⚠️  SEGURANÇA: ZAPI_WEBHOOK_SECRET não configurado — webhook WhatsApp bloqueará todas as requisições.');
+
 const app          = express();
 const PORT         = process.env.PORT || 5000;
 
 app.use(helmet({
-  contentSecurityPolicy: false, // frontend inline styles são extensos
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:  ["'self'"],
+      scriptSrc:   ["'self'"],
+      styleSrc:    ["'self'", "'unsafe-inline'"], // React usa inline styles extensivamente
+      imgSrc:      ["'self'", 'data:', 'https:'],
+      connectSrc:  ["'self'", 'https://api.mercadopago.com', 'https://api.z-api.io'],
+      fontSrc:     ["'self'", 'https:', 'data:'],
+      frameSrc:    ["'none'"],
+      objectSrc:   ["'none'"],
+      baseUri:     ["'self'"],
+    },
+  },
   crossOriginResourcePolicy: { policy: 'cross-origin' }, // imagens públicas do Storage
 }));
 const JWT_SECRET   = process.env.JWT_SECRET;
@@ -464,7 +482,8 @@ app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req,
 // MENSAGENS WHATSAPP: STREAM EM TEMPO REAL (SSE)
 // ============================================
 app.get('/api/messages/stream', (req, res) => {
-  const token = req.query.token || req.cookies?.token || req.headers.authorization?.split(' ')[1];
+  // Usa apenas cookie httpOnly — token no query string ficaria nos logs do servidor
+  const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).end();
   let user;
   try { user = jwt.verify(token, JWT_SECRET); } catch { return res.status(401).end(); }
@@ -1383,11 +1402,25 @@ app.post('/api/orders', async (req, res) => {
 // ============================================
 app.get('/api/orders/:id/track', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const vendorSlug = req.query.loja || null;
+    let vendorId = null;
+
+    // Se o slug da loja foi passado, busca o vendor_id para isolar o pedido
+    if (vendorSlug) {
+      const { data: vendor } = await supabase
+        .from('vendors').select('id').eq('slug', vendorSlug).maybeSingle();
+      if (!vendor) return res.status(404).json({ error: 'Pedido não encontrado' });
+      vendorId = vendor.id;
+    }
+
+    let query = supabase
       .from('orders')
       .select('id, order_number, status, items, subtotal, delivery_fee, total, delivery_type, created_at, customer_name')
-      .eq('id', req.params.id)
-      .single();
+      .eq('id', req.params.id);
+
+    if (vendorId) query = query.eq('vendor_id', vendorId);
+
+    const { data, error } = await query.single();
     if (error || !data) return res.status(404).json({ error: 'Pedido não encontrado' });
     res.json(data);
   } catch {
@@ -1871,11 +1904,14 @@ app.put('/api/products/:id/upload-image', [auth, planCheck, express.raw({ type: 
 app.post('/api/products/:id/image-url', [auth, planCheck], async (req, res) => {
   try {
     const { content_type = 'image/jpeg' } = req.body;
+    if (!ALLOWED_IMAGE_TYPES[content_type])
+      return res.status(400).json({ error: 'Tipo de arquivo não permitido. Use JPG, PNG, WEBP ou GIF.' });
+
     const { data: product } = await supabase
       .from('products').select('id').eq('id', req.params.id).eq('vendor_id', req.user.id).single();
     if (!product) return res.status(404).json({ error: 'Produto não encontrado' });
 
-    const ext  = content_type.split('/')[1]?.split('+')[0] || 'jpg';
+    const ext  = ALLOWED_IMAGE_TYPES[content_type];
     const path = `${req.user.id}/${req.params.id}.${ext}`;
 
     // Garante que o bucket existe

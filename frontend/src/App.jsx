@@ -499,10 +499,8 @@ export default function App() {
     if (!user || screen !== 'messages-admin') return;
     fetchConversations();
 
-    const token = authToken;
-    if (!token) return;
-
-    const es = new EventSource(`${API_URL}/messages/stream?token=${token}`);
+    // withCredentials envia o cookie httpOnly — token não vai mais na URL/logs
+    const es = new EventSource(`${API_URL}/messages/stream`, { withCredentials: true });
 
     es.onmessage = (e) => {
       try {
@@ -536,7 +534,8 @@ export default function App() {
     if (screen !== 'order-tracking' || !trackingOrderId) return;
     const fetchTracking = async () => {
       try {
-        const data = await apiFetch(`/orders/${trackingOrderId}/track`);
+        const lojaParam = vendorSlug ? `?loja=${encodeURIComponent(vendorSlug)}` : '';
+        const data = await apiFetch(`/orders/${trackingOrderId}/track${lojaParam}`);
         setTrackedOrder(data);
       } catch { setTrackedOrder(null); }
     };
