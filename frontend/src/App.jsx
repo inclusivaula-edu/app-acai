@@ -255,6 +255,7 @@ export default function App() {
   const getCategories = (raw) => (Array.isArray(raw) && raw.length ? raw : DEFAULT_CATEGORIES);
   const [loading, setLoading]         = useState(false);
   const [alert, setAlert]             = useState({ msg: '', type: '' });
+  const [regPassword, setRegPassword] = useState('');
   const [lastOrder, setLastOrder]     = useState(null);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installed, setInstalled]     = useState(false);
@@ -2620,7 +2621,6 @@ export default function App() {
   }
 
   if (screen === 'register') {
-    const [regPassword, setRegPassword] = useState('');
     const pwChecks = {
       len:     regPassword.length >= 8,
       upper:   /[A-Z]/.test(regPassword),
