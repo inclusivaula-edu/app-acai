@@ -330,7 +330,6 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('ac_saved_stores') || '[]'); } catch { return []; }
   });
   const [storeSearch, setStoreSearch]       = useState('');
-  const [searchResult, setSearchResult]     = useState(null);
   const [searchLoading, setSearchLoading]   = useState(false);
 
   const showAlert = (msg, type = 'error') => {
@@ -721,82 +720,73 @@ export default function App() {
   // ─── MINHAS LOJAS ────────────────────────────────────────────────────────────
   if (screen === 'my-stores') {
     const BIZ_EMOJIS_LOCAL = { acai:'🫐', confeitaria:'🎂', pizzaria:'🍕', hamburgueria:'🍔', restaurante:'🍽️', mercado:'🛒', outro:'🏪' };
+    const filtered = savedStores.filter(s =>
+      !storeSearch || s.name.toLowerCase().includes(storeSearch.toLowerCase())
+    );
     const handleSearch = async (e) => {
       e.preventDefault();
       const slug = storeSearch.trim().toLowerCase().replace(/\s+/g, '-');
       if (!slug) return;
-      setSearchLoading(true); setSearchResult(null);
+      setSearchLoading(true);
       try {
-        const info = await apiFetch(`/store/${slug}`);
-        setSearchResult({ slug, info });
-      } catch { showAlert('Loja não encontrada. Verifique o nome e tente novamente.'); }
+        await openStore(slug);
+      } catch { showAlert('Loja não encontrada. Peça o link ao estabelecimento.'); }
       finally { setSearchLoading(false); }
     };
     return (
-      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-        <div style={{ background: '#fff', borderRadius: '20px', padding: '32px 28px', maxWidth: '440px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
-          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '8px' }}>🏪</div>
+      <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: '#fff', borderRadius: '20px', padding: '28px', maxWidth: '440px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+            <div style={{ fontSize: '44px', marginBottom: '6px' }}>🏪</div>
             <h1 style={{ margin: '0 0 4px', fontSize: '22px', color: '#333' }}>App Cardápio</h1>
-            <p style={{ margin: 0, fontSize: '14px', color: '#999' }}>Escolha uma loja para pedir</p>
+            <p style={{ margin: 0, fontSize: '14px', color: '#999' }}>
+              {savedStores.length > 0 ? 'Suas lojas visitadas' : 'Acesse o link da loja para fazer pedidos'}
+            </p>
           </div>
           <Alert msg={alert.msg} type={alert.type} />
 
-          {savedStores.length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#999', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Suas lojas</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                {savedStores.map(store => (
+          {savedStores.length > 0 ? (
+            <>
+              {savedStores.length > 4 && (
+                <input
+                  value={storeSearch} onChange={e => setStoreSearch(e.target.value)}
+                  placeholder="Filtrar lojas..."
+                  style={{ width: '100%', padding: '10px 14px', border: '1px solid #ddd', borderRadius: '10px', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginBottom: '14px' }}
+                />
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '20px' }}>
+                {filtered.map(store => (
                   <button key={store.slug} onClick={() => openStore(store.slug)}
-                    style={{ background: '#f9f9f9', border: '1px solid #eee', borderRadius: '14px', padding: '16px 12px', cursor: 'pointer', textAlign: 'center', transition: 'all 0.15s' }}
+                    style={{ background: '#f9f9f9', border: '1px solid #eee', borderRadius: '14px', padding: '18px 12px', cursor: 'pointer', textAlign: 'center' }}
                     onMouseEnter={e => e.currentTarget.style.background = '#f0e7ff'}
                     onMouseLeave={e => e.currentTarget.style.background = '#f9f9f9'}
                   >
                     {store.logo_url
-                      ? <img src={store.logo_url} alt="" style={{ width: '44px', height: '44px', borderRadius: '10px', objectFit: 'cover', marginBottom: '8px', display: 'block', margin: '0 auto 8px' }} />
-                      : <div style={{ fontSize: '36px', marginBottom: '8px' }}>{BIZ_EMOJIS_LOCAL[store.business_type] || '🏪'}</div>
+                      ? <img src={store.logo_url} alt="" style={{ width: '48px', height: '48px', borderRadius: '12px', objectFit: 'cover', display: 'block', margin: '0 auto 10px' }} />
+                      : <div style={{ fontSize: '40px', marginBottom: '10px' }}>{BIZ_EMOJIS_LOCAL[store.business_type] || '🏪'}</div>
                     }
                     <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store.name}</div>
                   </button>
                 ))}
               </div>
-            </div>
-          )}
-
-          <form onSubmit={handleSearch}>
-            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#999', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              {savedStores.length > 0 ? 'Buscar outra loja' : 'Buscar loja'}
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                value={storeSearch} onChange={e => setStoreSearch(e.target.value)}
-                placeholder="Nome ou link da loja..."
-                style={{ flex: 1, padding: '11px 14px', border: '1px solid #ddd', borderRadius: '10px', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
-              />
-              <button type="submit" disabled={searchLoading}
-                style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', border: 'none', borderRadius: '10px', padding: '11px 16px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', flexShrink: 0 }}
-              >{searchLoading ? '...' : '🔍'}</button>
-            </div>
-          </form>
-
-          {searchResult && (
-            <div style={{ marginTop: '16px', background: '#f0e7ff', borderRadius: '12px', padding: '16px', display: 'flex', alignItems: 'center', gap: '14px' }}>
-              {searchResult.info.logo_url
-                ? <img src={searchResult.info.logo_url} alt="" style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0 }} />
-                : <div style={{ fontSize: '36px', flexShrink: 0 }}>{BIZ_EMOJIS_LOCAL[searchResult.info.business_type] || '🏪'}</div>
-              }
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 'bold', color: '#333', fontSize: '15px' }}>{searchResult.info.name}</div>
-                <div style={{ fontSize: '13px', color: '#999' }}>{searchResult.info.description || 'Cardápio online'}</div>
+            </>
+          ) : (
+            <form onSubmit={handleSearch} style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  value={storeSearch} onChange={e => setStoreSearch(e.target.value)}
+                  placeholder="Digite o nome da loja..."
+                  style={{ flex: 1, padding: '12px 14px', border: '1px solid #ddd', borderRadius: '10px', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
+                />
+                <button type="submit" disabled={searchLoading}
+                  style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', border: 'none', borderRadius: '10px', padding: '12px 16px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', flexShrink: 0 }}
+                >{searchLoading ? '...' : '🔍'}</button>
               </div>
-              <button onClick={() => openStore(searchResult.slug)}
-                style={{ background: '#667eea', color: '#fff', border: 'none', borderRadius: '10px', padding: '10px 16px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', flexShrink: 0 }}
-              >Abrir →</button>
-            </div>
+            </form>
           )}
 
-          <div style={{ borderTop: '1px solid #eee', marginTop: '24px', paddingTop: '16px', textAlign: 'center' }}>
-            <button onClick={() => setScreen('login')} style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: '13px' }}>
+          <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: '14px', textAlign: 'center' }}>
+            <button onClick={() => setScreen('login')} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '12px' }}>
               🔒 Sou lojista — entrar no painel
             </button>
           </div>

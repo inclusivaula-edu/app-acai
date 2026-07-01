@@ -543,6 +543,20 @@ app.post('/api/messages/:phone/reply', auth, async (req, res) => {
 });
 
 // ============================================
+// LOJAS PÚBLICAS: listagem geral
+// ============================================
+app.get('/api/stores', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('vendors')
+      .select('name, slug, logo_url, business_type, description')
+      .eq('status', 'active')
+      .order('name');
+    if (error) throw error;
+    res.json(data || []);
+  } catch { res.status(500).json({ error: 'Erro interno' }); }
+});
+
 // LOJA PÚBLICA: info por slug (multi-tenant)
 // ============================================
 app.get('/api/store/:slug', async (req, res) => {
