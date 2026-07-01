@@ -199,9 +199,9 @@ async function mpRequest(method, path, body = null) {
 }
 
 const PLANS = {
-  monthly:    { name: 'Mensal',    price: 290.00, months: 1  },
-  semiannual: { name: 'Semestral', price: 1500.00, months: 6  },
-  annual:     { name: 'Anual',     price: 2520.00, months: 12 },
+  monthly:    { name: 'Mensal',    monthlyPrice: 290.00, months: 1,  repetitions: 0  }, // 0 = sem fim
+  semiannual: { name: 'Semestral', monthlyPrice: 250.00, months: 6,  repetitions: 6  },
+  annual:     { name: 'Anual',     monthlyPrice: 210.00, months: 12, repetitions: 12 },
 };
 
 const TRIAL_DAYS = 14;
@@ -303,33 +303,55 @@ const planCheck = async (req, res, next) => {
 // WEBHOOK MERCADO PAGO
 // ============================================
 app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (req, res) => {
-  res.json({ received: true }); // responder rápido
+  res.json({ received: true });
 
   try {
     const { type, data } = req.body;
-    if (type !== 'payment' || !data?.id) return;
+    if (!data?.id) return;
 
-    const { status: httpStatus, data: payment } = await mpRequest('GET', `/v1/payments/${data.id}`);
-    if (httpStatus !== 200) return;
+    // Evento de assinatura (cobrança recorrente autorizada)
+    if (type === 'subscription_preapproval') {
+      const { status: hs, data: sub } = await mpRequest('GET', `/preapproval/${data.id}`);
+      if (hs !== 200) return;
 
-    const { vendor_id, plan_id } = payment.metadata || {};
-    if (!vendor_id || !PLANS[plan_id]) return;
+      const [vendor_id, plan_id] = (sub.external_reference || '').split('|');
+      if (!vendor_id || !PLANS[plan_id]) return;
 
-    if (payment.status === 'approved') {
-      const months = PLANS[plan_id].months;
-      const expiresAt = new Date();
-      expiresAt.setMonth(expiresAt.getMonth() + months);
-      await supabase.from('vendors').update({
-        plan: plan_id,
-        plan_status: 'active',
-        plan_expires_at: expiresAt.toISOString(),
-        mp_payment_id: String(payment.id),
-      }).eq('id', vendor_id);
-      console.log(`✅ Plano ${plan_id} ativado para vendor ${vendor_id}`);
+      if (sub.status === 'authorized') {
+        const months = PLANS[plan_id].months;
+        const expiresAt = new Date();
+        expiresAt.setMonth(expiresAt.getMonth() + months);
+        await supabase.from('vendors').update({
+          plan: plan_id,
+          plan_status: 'active',
+          plan_expires_at: expiresAt.toISOString(),
+          mp_payment_id: String(sub.id),
+        }).eq('id', vendor_id);
+        console.log(`✅ Assinatura ${plan_id} ativada para vendor ${vendor_id}`);
+      }
+
+      if (sub.status === 'cancelled' || sub.status === 'paused') {
+        await supabase.from('vendors').update({ plan_status: sub.status === 'paused' ? 'past_due' : 'canceled' }).eq('id', vendor_id);
+      }
+      return;
     }
 
-    if (payment.status === 'rejected' || payment.status === 'cancelled') {
-      await supabase.from('vendors').update({ plan_status: 'past_due' }).eq('id', vendor_id);
+    // Evento de pagamento avulso (fallback)
+    if (type === 'payment') {
+      const { status: hs, data: payment } = await mpRequest('GET', `/v1/payments/${data.id}`);
+      if (hs !== 200) return;
+      const [vendor_id, plan_id] = (payment.external_reference || '').split('|');
+      if (!vendor_id || !PLANS[plan_id]) return;
+      if (payment.status === 'approved') {
+        const months = PLANS[plan_id].months;
+        const expiresAt = new Date();
+        expiresAt.setMonth(expiresAt.getMonth() + months);
+        await supabase.from('vendors').update({
+          plan: plan_id, plan_status: 'active',
+          plan_expires_at: expiresAt.toISOString(),
+          mp_payment_id: String(payment.id),
+        }).eq('id', vendor_id);
+      }
     }
   } catch (err) {
     console.error('MP webhook error:', err.message);
@@ -573,10 +595,10 @@ app.get('/api/plans', (req, res) => {
   res.json(Object.entries(PLANS).map(([id, p]) => ({
     id,
     name: p.name,
-    price_monthly: p.price,
+    price_monthly: p.monthlyPrice,
     months: p.months,
-    total: +(p.price * p.months).toFixed(2),
-    savings: +((290 - p.price) * p.months).toFixed(2),
+    total: +(p.monthlyPrice * (p.months || 1)).toFixed(2),
+    savings: +((290 - p.monthlyPrice) * (p.months || 1)).toFixed(2),
   })));
 });
 
@@ -594,32 +616,51 @@ app.post('/api/plans/subscribe', auth, async (req, res) => {
     const { data: vendor } = await supabase
       .from('vendors').select('email, name').eq('id', req.user.id).single();
 
-    const preference = {
-      items: [{
-        title: `App Cardápio — Plano ${plan.name}`,
-        quantity: 1,
-        unit_price: plan.price,
+    const BACKEND_URL = process.env.BACKEND_URL || 'https://app-acai-production.up.railway.app';
+
+    // Criar plano de assinatura no MP
+    const planBody = {
+      reason: `App Cardápio — Plano ${plan.name}`,
+      auto_recurring: {
+        frequency: 1,
+        frequency_type: 'months',
+        transaction_amount: plan.monthlyPrice,
         currency_id: 'BRL',
-      }],
-      payer: { email: vendor.email, name: vendor.name },
-      back_urls: {
-        success: `${FRONTEND_URL}?plan_success=1`,
-        failure: `${FRONTEND_URL}?plan_canceled=1`,
-        pending: `${FRONTEND_URL}?plan_pending=1`,
+        ...(plan.repetitions > 0 ? { repetitions: plan.repetitions } : {}),
       },
-      auto_return: 'approved',
-      notification_url: `${process.env.BACKEND_URL || 'https://app-acai-production.up.railway.app'}/api/webhooks/mercadopago`,
-      metadata: { vendor_id: req.user.id, plan_id },
-      statement_descriptor: 'APP CARDAPIO',
+      back_url: `${FRONTEND_URL}?plan_success=1`,
+      notification_url: `${BACKEND_URL}/api/webhooks/mercadopago`,
     };
 
-    const { status, data } = await mpRequest('POST', '/checkout/preferences', preference);
-    if (status !== 201) {
-      console.error('MP preference error:', data);
-      return res.status(500).json({ error: 'Erro ao criar preferência de pagamento' });
+    const { status: ps, data: mpPlan } = await mpRequest('POST', '/preapproval_plan', planBody);
+    if (ps !== 201 && ps !== 200) {
+      console.error('MP plan error:', mpPlan);
+      return res.status(500).json({ error: 'Erro ao criar plano no Mercado Pago' });
     }
 
-    res.json({ url: data.init_point });
+    // Criar assinatura vinculada ao plano
+    const subBody = {
+      preapproval_plan_id: mpPlan.id,
+      reason: `App Cardápio — Plano ${plan.name}`,
+      payer_email: vendor.email,
+      back_url: `${FRONTEND_URL}?plan_success=1`,
+      auto_recurring: {
+        frequency: 1,
+        frequency_type: 'months',
+        transaction_amount: plan.monthlyPrice,
+        currency_id: 'BRL',
+        ...(plan.repetitions > 0 ? { repetitions: plan.repetitions } : {}),
+      },
+      external_reference: `${req.user.id}|${plan_id}`,
+    };
+
+    const { status: ss, data: sub } = await mpRequest('POST', '/preapproval', subBody);
+    if (ss !== 201 && ss !== 200) {
+      console.error('MP subscription error:', sub);
+      return res.status(500).json({ error: 'Erro ao criar assinatura' });
+    }
+
+    res.json({ url: sub.init_point });
   } catch (err) {
     console.error('MP subscribe error:', err);
     res.status(500).json({ error: 'Erro ao iniciar pagamento' });
