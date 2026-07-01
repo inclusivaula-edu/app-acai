@@ -1491,17 +1491,21 @@ export default function App() {
           {/* Âncora Premium */}
           <div style={{ background: '#1a1a2e', borderRadius: '16px', padding: '20px 28px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
             <div>
-              <div style={{ fontSize: '11px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>💎 Premium — Multilojas</div>
+              <div style={{ fontSize: '11px', color: '#aaa', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>💎 Premium — Multilojista</div>
               <div style={{ color: '#fff', fontSize: '14px', marginBottom: '4px' }}>Até 3 lojas · Suporte prioritário 24h · API · Relatórios avançados</div>
-              <div style={{ fontSize: '12px', color: '#888' }}>Somente anual · Para redes e franquias</div>
+              <div style={{ fontSize: '12px', color: '#888' }}>24 meses · Para redes e franquias</div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff', lineHeight: 1 }}>R$ 590</div>
+              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#fff', lineHeight: 1 }}>R$ 600</div>
               <div style={{ fontSize: '13px', color: '#888' }}>/mês</div>
-              <button onClick={() => window.open('https://wa.me/55' + (vendorSettings?.phone || ''), '_blank')}
-                style={{ marginTop: '8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                Solicitar →
-              </button>
+              {planStatus?.plan === 'premium' && planStatus?.plan_status === 'active' ? (
+                <div style={{ marginTop: '8px', background: 'rgba(46,204,113,0.2)', border: '1px solid #2ecc71', color: '#2ecc71', padding: '6px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>✓ Ativo</div>
+              ) : (
+                <button onClick={() => user ? subscribePlan('premium') : setScreen('login')} disabled={loading}
+                  style={{ marginTop: '8px', background: 'linear-gradient(135deg, #667eea, #764ba2)', border: 'none', color: '#fff', padding: '8px 18px', borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold', opacity: loading ? 0.7 : 1 }}>
+                  {user ? 'Assinar agora' : 'Entrar para assinar'}
+                </button>
+              )}
             </div>
           </div>
 

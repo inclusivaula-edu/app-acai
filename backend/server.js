@@ -199,9 +199,10 @@ async function mpRequest(method, path, body = null) {
 }
 
 const PLANS = {
-  monthly:    { name: 'Mensal',    monthlyPrice: 290.00, months: 1,  repetitions: 0  }, // 0 = sem fim
-  semiannual: { name: 'Semestral', monthlyPrice: 250.00, months: 6,  repetitions: 6  },
-  annual:     { name: 'Anual',     monthlyPrice: 210.00, months: 12, repetitions: 12 },
+  monthly:    { name: 'Mensal',            monthlyPrice: 290.00, months: 1,  repetitions: 0  },
+  semiannual: { name: 'Semestral',         monthlyPrice: 250.00, months: 6,  repetitions: 6  },
+  annual:     { name: 'Anual',             monthlyPrice: 210.00, months: 12, repetitions: 12 },
+  premium:    { name: 'Premium Multiloja', monthlyPrice: 600.00, months: 24, repetitions: 24 },
 };
 
 const TRIAL_DAYS = 14;
