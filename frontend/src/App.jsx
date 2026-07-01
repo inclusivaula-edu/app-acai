@@ -256,6 +256,7 @@ export default function App() {
   const [loading, setLoading]         = useState(false);
   const [alert, setAlert]             = useState({ msg: '', type: '' });
   const [regPassword, setRegPassword] = useState('');
+  const [confirmStatus, setConfirmStatus] = useState('loading');
   const [lastOrder, setLastOrder]     = useState(null);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installed, setInstalled]     = useState(false);
@@ -446,6 +447,14 @@ export default function App() {
     return () => clearInterval(interval);
   }, [screen, trackingOrderId]);
 
+  useEffect(() => {
+    if (screen !== 'confirm-email') return;
+    if (!initConfirmTk) { setConfirmStatus('error'); return; }
+    apiFetch('/auth/confirm-email', { method: 'POST', body: JSON.stringify({ token: initConfirmTk }) })
+      .then(() => { setConfirmStatus('success'); setEmailConfirmed(true); window.history.replaceState({}, '', window.location.pathname); })
+      .catch(() => setConfirmStatus('error'));
+  }, [screen]);
+
   const fetchProducts = async () => {
     if (!vendorSlug) return;
     try {
@@ -535,13 +544,6 @@ export default function App() {
 
   // ─── CONFIRMAR EMAIL (redirect do link) ──────────────────────────────────────
   if (screen === 'confirm-email') {
-    const [confirmStatus, setConfirmStatus] = React.useState('loading');
-    React.useEffect(() => {
-      if (!initConfirmTk) { setConfirmStatus('error'); return; }
-      apiFetch('/auth/confirm-email', { method: 'POST', body: JSON.stringify({ token: initConfirmTk }) })
-        .then(() => { setConfirmStatus('success'); setEmailConfirmed(true); window.history.replaceState({}, '', window.location.pathname); })
-        .catch(() => setConfirmStatus('error'));
-    }, []);
     return (
       <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
         <div style={{ background: '#fff', borderRadius: '16px', padding: '48px 40px', maxWidth: '400px', width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
