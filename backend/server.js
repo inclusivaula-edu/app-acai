@@ -632,7 +632,7 @@ app.get('/api/plans', (req, res) => {
 // PLANOS: INICIAR CHECKOUT (vendor)
 // ============================================
 app.post('/api/plans/subscribe', auth, async (req, res) => {
-  if (!MP_ACCESS_TOKEN) return res.status(503).json({ error: 'Mercado Pago não configurado' });
+  if (!MP_ACCESS_TOKEN) return res.status(503).json({ error: 'Mercado Pago não configurado. Adicione MP_ACCESS_TOKEN no Railway.' });
 
   const { plan_id } = req.body;
   const plan = PLANS[plan_id];
@@ -644,32 +644,13 @@ app.post('/api/plans/subscribe', auth, async (req, res) => {
 
     const BACKEND_URL = process.env.BACKEND_URL || 'https://app-acai-production.up.railway.app';
 
-    // Criar plano de assinatura no MP
-    const planBody = {
-      reason: `App Cardápio — Plano ${plan.name}`,
-      auto_recurring: {
-        frequency: 1,
-        frequency_type: 'months',
-        transaction_amount: plan.monthlyPrice,
-        currency_id: 'BRL',
-        ...(plan.repetitions > 0 ? { repetitions: plan.repetitions } : {}),
-      },
-      back_url: `${FRONTEND_URL}?plan_success=1`,
-      notification_url: `${BACKEND_URL}/api/webhooks/mercadopago`,
-    };
-
-    const { status: ps, data: mpPlan } = await mpRequest('POST', '/preapproval_plan', planBody);
-    if (ps !== 201 && ps !== 200) {
-      console.error('MP plan error:', mpPlan);
-      return res.status(500).json({ error: 'Erro ao criar plano no Mercado Pago' });
-    }
-
-    // Criar assinatura vinculada ao plano
+    // Criar assinatura direta no MP (sem criar plano-template separado)
     const subBody = {
-      preapproval_plan_id: mpPlan.id,
       reason: `App Cardápio — Plano ${plan.name}`,
       payer_email: vendor.email,
       back_url: `${FRONTEND_URL}?plan_success=1`,
+      external_reference: `${req.user.id}|${plan_id}`,
+      notification_url: `${BACKEND_URL}/api/webhooks/mercadopago`,
       auto_recurring: {
         frequency: 1,
         frequency_type: 'months',
@@ -677,19 +658,19 @@ app.post('/api/plans/subscribe', auth, async (req, res) => {
         currency_id: 'BRL',
         ...(plan.repetitions > 0 ? { repetitions: plan.repetitions } : {}),
       },
-      external_reference: `${req.user.id}|${plan_id}`,
     };
 
-    const { status: ss, data: sub } = await mpRequest('POST', '/preapproval', subBody);
-    if (ss !== 201 && ss !== 200) {
-      console.error('MP subscription error:', sub);
-      return res.status(500).json({ error: 'Erro ao criar assinatura' });
+    const { status, data: sub } = await mpRequest('POST', '/preapproval', subBody);
+    if (status !== 201 && status !== 200) {
+      console.error('MP subscription error:', JSON.stringify(sub));
+      const msg = sub?.message || sub?.error || JSON.stringify(sub);
+      return res.status(500).json({ error: `Erro MP: ${msg}` });
     }
 
     res.json({ url: sub.init_point });
   } catch (err) {
-    console.error('MP subscribe error:', err);
-    res.status(500).json({ error: 'Erro ao iniciar pagamento' });
+    console.error('MP subscribe error:', err.message);
+    res.status(500).json({ error: err.message || 'Erro ao iniciar pagamento' });
   }
 });
 
