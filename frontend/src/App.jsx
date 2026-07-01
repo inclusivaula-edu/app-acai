@@ -218,6 +218,40 @@ function AdminHeader({ active, user, vendorSettings, planStatus, onNavigate, onL
   );
 }
 
+// ─── BANNER DE COOKIES LGPD ──────────────────────────────────────────────────
+function CookieBanner({ onAccept }) {
+  return (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999,
+      background: '#1a1a2e', color: '#eee', padding: '16px 20px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: '16px', flexWrap: 'wrap', boxShadow: '0 -4px 20px rgba(0,0,0,0.3)',
+    }}>
+      <p style={{ margin: 0, fontSize: '13px', lineHeight: '1.6', flex: 1 }}>
+        🍪 Usamos cookies essenciais para o funcionamento do app (sessão, carrinho) e dados de pedido conforme a{' '}
+        <strong>LGPD (Lei 13.709/2018)</strong>.
+        Ao continuar, você aceita nossa{' '}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('open-privacy'))}
+          style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontSize: '13px', padding: 0, textDecoration: 'underline' }}
+        >
+          Política de Privacidade
+        </button>.
+      </p>
+      <button
+        onClick={onAccept}
+        style={{
+          background: '#667eea', color: '#fff', border: 'none', borderRadius: '8px',
+          padding: '10px 22px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px',
+          whiteSpace: 'nowrap', flexShrink: 0,
+        }}
+      >
+        Entendi e aceito
+      </button>
+    </div>
+  );
+}
+
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -331,6 +365,10 @@ export default function App() {
   });
   const [storeSearch, setStoreSearch]       = useState('');
   const [searchLoading, setSearchLoading]   = useState(false);
+  const [cookieConsent, setCookieConsent]   = useState(() => localStorage.getItem('ac_cookie_consent') === '1');
+  const [lgpdConsent, setLgpdConsent]       = useState(false);
+  const [lgpdDeletePhone, setLgpdDeletePhone] = useState('');
+  const [lgpdDeleteStatus, setLgpdDeleteStatus] = useState(null);
 
   const showAlert = (msg, type = 'error') => {
     setAlert({ msg, type });
@@ -368,6 +406,13 @@ export default function App() {
   // Acordar o backend imediatamente ao abrir o app (evita cold start percebido)
   useEffect(() => {
     fetch(`${API_URL}/health`).catch(() => {});
+  }, []);
+
+  // Evento do banner de cookies para abrir a tela de privacidade
+  useEffect(() => {
+    const handler = () => setScreen('privacy');
+    window.addEventListener('open-privacy', handler);
+    return () => window.removeEventListener('open-privacy', handler);
   }, []);
 
   // Carregar info da loja, produtos e restaurar sessão
@@ -881,7 +926,10 @@ export default function App() {
     const totalItems = cart.reduce((s, i) => s + i.quantity, 0);
     const totalPrice = cart.reduce((s, i) => s + i.price * i.quantity, 0);
     return (
-      <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
+      <div style={{ background: '#f5f5f5', minHeight: '100vh', paddingBottom: cookieConsent ? 0 : 80 }}>
+        {!cookieConsent && (
+          <CookieBanner onAccept={() => { localStorage.setItem('ac_cookie_consent', '1'); setCookieConsent(true); }} />
+        )}
         <div style={{ background: '#fff', padding: '12px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
           <div style={{ maxWidth: '1200px', margin: '0 auto' }} className="menu-header-wrap">
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
@@ -1048,6 +1096,7 @@ export default function App() {
       if (!customerName.trim()) { showAlert('Informe seu nome'); return; }
       if (!customerPhone.trim()) { showAlert('Informe seu WhatsApp'); return; }
       if (checkoutDeliveryType === 'entrega' && !customerAddress.trim()) { showAlert('Informe o endereço para entrega'); return; }
+      if (!lgpdConsent) { showAlert('Aceite a Política de Privacidade para continuar'); return; }
       setLoading(true);
       try {
         const data = await apiFetch('/orders', {
@@ -1133,14 +1182,29 @@ export default function App() {
               </div>
             )}
 
-            <Btn onClick={handleCheckout} disabled={loading || !checkoutDeliveryType} style={{ width: '100%' }}>
+            <div style={{ marginBottom: '16px', padding: '12px', background: '#f8f9ff', borderRadius: '8px', border: '1px solid #e0e4ff' }}>
+              <label style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '13px', color: '#444', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={lgpdConsent}
+                  onChange={e => setLgpdConsent(e.target.checked)}
+                  style={{ marginTop: '2px', flexShrink: 0, width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <span>
+                  Li e aceito a{' '}
+                  <button onClick={() => setScreen('privacy')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '13px', padding: 0, textDecoration: 'underline', fontWeight: 'bold' }}>Política de Privacidade</button>
+                  {' '}e autorizo o uso dos meus dados para processamento deste pedido, conforme a LGPD (Lei 13.709/2018).
+                </span>
+              </label>
+            </div>
+            <Btn onClick={handleCheckout} disabled={loading || !checkoutDeliveryType || !lgpdConsent} style={{ width: '100%', opacity: (!checkoutDeliveryType || !lgpdConsent) ? 0.6 : 1 }}>
               {loading ? 'Enviando pedido...' : 'Finalizar Pedido'}
             </Btn>
             <p style={{ fontSize: '11px', color: '#bbb', textAlign: 'center', marginTop: '12px', marginBottom: 0 }}>
-              Ao fazer o pedido você concorda com os nossos{' '}
-              <button onClick={() => setScreen('terms')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Termos de Uso</button>
-              {' '}e{' '}
-              <button onClick={() => setScreen('privacy')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Política de Privacidade</button>.
+              Dúvidas?{' '}
+              <button onClick={() => setScreen('terms')} style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Termos de Uso</button>
+              {' '}|{' '}
+              <button onClick={() => setScreen('lgpd-delete')} style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Excluir meus dados</button>
             </p>
           </div>
         </div>
@@ -1307,6 +1371,10 @@ export default function App() {
                     onClick={() => setScreen('menu')}
                     style={{ width: '100%', background: 'none', border: '1px solid #e0e0e0', color: '#667eea', padding: '11px', borderRadius: '10px', fontSize: '14px', cursor: 'pointer' }}
                   >+ Fazer novo pedido</button>
+                  <button
+                    onClick={() => setScreen('lgpd-delete')}
+                    style={{ width: '100%', background: 'none', border: 'none', color: '#bbb', padding: '8px', borderRadius: '10px', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
+                  >Excluir meus dados (LGPD)</button>
                 </div>
               </>
             )}
@@ -1574,7 +1642,7 @@ export default function App() {
           </div>
 
           <div style={{ textAlign: 'center', marginTop: '32px', color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>
-            Pagamento seguro via Stripe · Cancele quando quiser
+            Pagamento seguro via Mercado Pago · Cancele quando quiser
             <div style={{ marginTop: '8px' }}>
               <button onClick={() => setScreen('privacy')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline', marginRight: '12px' }}>Política de Privacidade</button>
               <button onClick={() => setScreen('terms')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}>Termos de Uso</button>
@@ -2876,13 +2944,13 @@ export default function App() {
           <button onClick={() => setScreen(prevScreen)} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', marginBottom: '20px', fontWeight: 'bold', fontSize: '15px' }}>← Voltar</button>
           <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
             <h1 style={{ margin: '0 0 8px 0', color: '#333', fontSize: '26px' }}>🔒 Política de Privacidade</h1>
-            <p style={{ color: '#999', fontSize: '13px', marginTop: 0 }}>Última atualização: junho de 2025</p>
+            <p style={{ color: '#999', fontSize: '13px', marginTop: 0 }}>Última atualização: julho de 2026</p>
 
             {[
               { title: '1. Quem somos', body: 'O Açaí Shop é uma plataforma de pedidos online para estabelecimentos de açaí. Atuamos como operador de dados em nome de cada lojista cadastrado, que é o controlador dos dados de seus clientes, conforme a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018).' },
               { title: '2. Dados que coletamos', body: 'Coletamos os dados que você nos fornece ao fazer um pedido: nome completo, número de WhatsApp, endereço de e-mail (opcional) e o conteúdo do seu pedido. Lojistas também fornecem e-mail e senha para acesso à plataforma.' },
               { title: '3. Como usamos seus dados', body: 'Seus dados são usados exclusivamente para: (a) processar e acompanhar seu pedido; (b) enviar confirmações de pedido pelo WhatsApp; (c) contato do estabelecimento sobre seu pedido. Não vendemos nem compartilhamos seus dados com terceiros para fins de marketing.' },
-              { title: '4. Compartilhamento de dados', body: 'Seus dados são compartilhados apenas com: (a) o estabelecimento ao qual você fez o pedido; (b) a Supabase Inc., nosso provedor de banco de dados (EUA, com cláusulas contratuais padrão da LGPD); (c) a Stripe Inc., para processamento de pagamentos de assinaturas de lojistas — dados de clientes finais não são enviados ao Stripe.' },
+              { title: '4. Compartilhamento de dados', body: 'Seus dados são compartilhados apenas com: (a) o estabelecimento ao qual você fez o pedido; (b) a Supabase Inc., nosso provedor de banco de dados (EUA, com cláusulas contratuais padrão da LGPD); (c) o Mercado Pago, para processamento de pagamentos de assinaturas de lojistas — dados de clientes finais não são enviados ao Mercado Pago.' },
               { title: '5. Armazenamento e segurança', body: 'Os dados são armazenados em servidores protegidos da Supabase. Senhas de lojistas são armazenadas com criptografia bcrypt. Tokens de autenticação expiram em 24 horas. Comunicações são criptografadas via HTTPS/TLS.' },
               { title: '6. Seus direitos (LGPD)', body: 'Você tem direito a: confirmar se tratamos seus dados; acessar seus dados; corrigir dados incompletos ou desatualizados; solicitar a eliminação dos dados; revogar consentimento a qualquer momento. Para exercer esses direitos, entre em contato pelo e-mail abaixo.' },
               { title: '7. Retenção de dados', body: 'Pedidos são mantidos por até 1 ano para fins de suporte e auditoria. Você pode solicitar a exclusão antecipada dos seus dados a qualquer momento.' },
@@ -2909,13 +2977,13 @@ export default function App() {
           <button onClick={() => setScreen(prevScreen)} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', marginBottom: '20px', fontWeight: 'bold', fontSize: '15px' }}>← Voltar</button>
           <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
             <h1 style={{ margin: '0 0 8px 0', color: '#333', fontSize: '26px' }}>📄 Termos de Uso</h1>
-            <p style={{ color: '#999', fontSize: '13px', marginTop: 0 }}>Última atualização: junho de 2025</p>
+            <p style={{ color: '#999', fontSize: '13px', marginTop: 0 }}>Última atualização: julho de 2026</p>
 
             {[
               { title: '1. Aceitação dos Termos', body: 'Ao utilizar o Açaí Shop — seja como cliente final fazendo um pedido ou como lojista gerenciando sua loja — você concorda com estes Termos de Uso. Se não concordar, não utilize a plataforma.' },
               { title: '2. O Serviço', body: 'O Açaí Shop é uma plataforma de gestão de pedidos que conecta clientes a estabelecimentos de açaí. Somos intermediários tecnológicos: o contrato de compra e venda é firmado diretamente entre o cliente e o estabelecimento. Não somos responsáveis pela qualidade, preparo ou entrega dos produtos.' },
               { title: '3. Clientes finais', body: 'Ao fazer um pedido você fornece seus dados voluntariamente e os disponibiliza ao estabelecimento para fins de processamento do pedido. Você é responsável pelas informações fornecidas. Pedidos com dados incorretos podem não ser atendidos.' },
-              { title: '4. Lojistas — Planos e pagamentos', body: 'O acesso ao painel de gestão requer uma assinatura paga via Stripe. Os valores dos planos estão disponíveis na página de Planos. Assinaturas são cobradas automaticamente no período contratado e podem ser canceladas a qualquer momento pelo portal do cliente. O cancelamento encerra a renovação automática mas não gera reembolso pelo período já pago.' },
+              { title: '4. Lojistas — Planos e pagamentos', body: 'O acesso ao painel de gestão requer uma assinatura paga via Mercado Pago. Os valores dos planos estão disponíveis na página de Planos. Assinaturas são cobradas automaticamente (mensalmente) no período contratado e podem ser canceladas a qualquer momento entrando em contato. O cancelamento encerra a renovação automática mas não gera reembolso pelo período já pago.' },
               { title: '5. Período de teste', body: 'Novos lojistas recebem um período de teste gratuito de 14 dias com acesso completo à plataforma. Não é necessário cartão de crédito durante o período de teste.' },
               { title: '6. Uso adequado', body: 'É proibido: usar a plataforma para fins ilegais; tentar acessar dados de outros usuários ou lojas; realizar ataques de negação de serviço; enviar conteúdo ofensivo ou spam. O descumprimento pode resultar no encerramento imediato da conta.' },
               { title: '7. Disponibilidade', body: 'Empreendemos esforços razoáveis para manter a plataforma disponível 24/7, mas não garantimos disponibilidade ininterrupta. Manutenções programadas serão comunicadas com antecedência quando possível.' },
@@ -2929,6 +2997,69 @@ export default function App() {
                 <p style={{ color: '#666', lineHeight: '1.7', margin: 0, fontSize: '14px' }}>{body}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── EXCLUSÃO DE DADOS LGPD ──────────────────────────────────────────────────
+  if (screen === 'lgpd-delete') {
+    const prevScreen = vendorSlug ? 'menu' : 'login';
+    const handleLgpdDelete = async () => {
+      if (!lgpdDeletePhone.trim()) { showAlert('Informe o WhatsApp usado no pedido'); return; }
+      setLoading(true);
+      try {
+        await apiFetch('/lgpd/customer-data', {
+          method: 'DELETE',
+          body: JSON.stringify({ phone: lgpdDeletePhone.trim() }),
+        });
+        setLgpdDeleteStatus('success');
+      } catch {
+        setLgpdDeleteStatus('error');
+      } finally {
+        setLoading(false);
+      }
+    };
+    return (
+      <div style={{ background: '#f5f5f5', minHeight: '100vh', padding: '20px' }}>
+        <div style={{ maxWidth: '560px', margin: '0 auto' }}>
+          <button onClick={() => setScreen(prevScreen)} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', marginBottom: '20px', fontWeight: 'bold', fontSize: '15px' }}>← Voltar</button>
+          <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+            <h1 style={{ margin: '0 0 8px 0', color: '#333', fontSize: '22px' }}>🗑️ Excluir meus dados</h1>
+            <p style={{ color: '#666', fontSize: '14px', lineHeight: '1.7', marginBottom: '28px' }}>
+              Conforme a <strong>LGPD (Lei 13.709/2018)</strong>, você tem o direito de solicitar a remoção dos seus dados pessoais (nome, telefone, e-mail e endereço) dos nossos registros.<br /><br />
+              Informe o WhatsApp que você usou ao fazer seus pedidos:
+            </p>
+            {lgpdDeleteStatus === 'success' ? (
+              <div style={{ background: '#e6ffed', border: '1px solid #52c41a', borderRadius: '10px', padding: '20px', textAlign: 'center' }}>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>✅</div>
+                <p style={{ color: '#2d6a2d', fontWeight: 'bold', margin: 0 }}>Dados removidos com sucesso!</p>
+                <p style={{ color: '#555', fontSize: '13px', marginTop: '8px' }}>Seus dados pessoais foram anonimizados. O histórico de pedidos é mantido apenas para fins fiscais e auditoria, sem identificação pessoal.</p>
+              </div>
+            ) : lgpdDeleteStatus === 'error' ? (
+              <div style={{ background: '#fff2f0', border: '1px solid #ff4d4f', borderRadius: '10px', padding: '20px', textAlign: 'center' }}>
+                <p style={{ color: '#cf1322', fontWeight: 'bold', margin: 0 }}>Não encontramos dados com esse número.</p>
+                <p style={{ color: '#555', fontSize: '13px', marginTop: '8px' }}>Verifique o número informado ou entre em contato: 17digital.ap@gmail.com</p>
+                <button onClick={() => setLgpdDeleteStatus(null)} style={{ marginTop: '12px', background: 'none', border: '1px solid #ccc', borderRadius: '6px', padding: '6px 16px', cursor: 'pointer', fontSize: '13px' }}>Tentar novamente</button>
+              </div>
+            ) : (
+              <>
+                <Alert msg={alert.msg} type={alert.type} />
+                <Input
+                  label="WhatsApp (com DDD) *"
+                  value={lgpdDeletePhone}
+                  onChange={e => setLgpdDeletePhone(e.target.value)}
+                  placeholder="(11) 99999-9999"
+                />
+                <Btn onClick={handleLgpdDelete} disabled={loading} style={{ width: '100%', marginTop: '8px', background: '#ff4d4f' }}>
+                  {loading ? 'Removendo...' : 'Solicitar exclusão de dados'}
+                </Btn>
+                <p style={{ fontSize: '12px', color: '#aaa', textAlign: 'center', marginTop: '16px' }}>
+                  Esta ação é irreversível. Seus dados de identificação serão apagados dos pedidos associados a esse número.
+                </p>
+              </>
+            )}
           </div>
         </div>
       </div>
