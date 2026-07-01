@@ -168,6 +168,16 @@ const generateSlug = (name) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 
+// Evita overflow de setMonth (Jan 31 + 1 mês = Mar 2): clamp ao último dia do mês destino
+function addMonthsSafe(date, n) {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return d;
+}
+
 // ── Mercado Pago ───────────────────────────────
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || null;
 
@@ -192,6 +202,7 @@ async function mpRequest(method, path, body = null) {
         catch { resolve({ status: res.statusCode, data: raw }); }
       });
     });
+    req.setTimeout(15000, () => { req.destroy(new Error('MP API timeout')); });
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -304,6 +315,23 @@ const planCheck = async (req, res, next) => {
 // WEBHOOK MERCADO PAGO
 // ============================================
 app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (req, res) => {
+  // Verificar assinatura HMAC-SHA256 do Mercado Pago (x-signature header)
+  const MP_WEBHOOK_SECRET = process.env.MP_WEBHOOK_SECRET;
+  if (MP_WEBHOOK_SECRET) {
+    const xSignature = req.headers['x-signature'] || '';
+    const xRequestId = req.headers['x-request-id'] || '';
+    const dataId     = req.body?.data?.id || '';
+    // Formato: ts=<timestamp>,v1=<hmac>
+    const tsPart = xSignature.split(',').find(p => p.startsWith('ts='));
+    const v1Part = xSignature.split(',').find(p => p.startsWith('v1='));
+    if (!tsPart || !v1Part) return res.status(401).json({ error: 'Assinatura ausente' });
+    const ts   = tsPart.split('=')[1];
+    const hash = v1Part.split('=')[1];
+    const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
+    const expected = crypto.createHmac('sha256', MP_WEBHOOK_SECRET).update(manifest).digest('hex');
+    if (expected !== hash) return res.status(401).json({ error: 'Assinatura inválida' });
+  }
+
   res.json({ received: true });
 
   try {
@@ -319,8 +347,7 @@ app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (r
 
       if (sub.status === 'authorized') {
         const months = PLANS[plan_id].months;
-        const expiresAt = new Date();
-        expiresAt.setMonth(expiresAt.getMonth() + months);
+        const expiresAt = addMonthsSafe(new Date(), months);
         await supabase.from('vendors').update({
           plan: plan_id, plan_status: 'active',
           plan_expires_at: expiresAt.toISOString(),
@@ -350,9 +377,9 @@ app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (r
         if (payment.status === 'approved') {
           // Renova por mais 1 mês a cada pagamento aprovado
           const { data: vendor } = await supabase.from('vendors').select('plan_expires_at').eq('id', vendor_id).single();
-          const base = vendor?.plan_expires_at && new Date(vendor.plan_expires_at) > new Date()
+          const baseDate = vendor?.plan_expires_at && new Date(vendor.plan_expires_at) > new Date()
             ? new Date(vendor.plan_expires_at) : new Date();
-          base.setMonth(base.getMonth() + 1);
+          const base = addMonthsSafe(baseDate, 1);
           await supabase.from('vendors').update({
             plan: plan_id, plan_status: 'active',
             plan_expires_at: base.toISOString(),
@@ -370,8 +397,7 @@ app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (r
       if (!vendor_id || !PLANS[plan_id]) return;
       if (payment.status === 'approved') {
         const months = PLANS[plan_id].months || 1;
-        const expiresAt = new Date();
-        expiresAt.setMonth(expiresAt.getMonth() + months);
+        const expiresAt = addMonthsSafe(new Date(), months);
         await supabase.from('vendors').update({
           plan: plan_id, plan_status: 'active',
           plan_expires_at: expiresAt.toISOString(),
@@ -388,12 +414,11 @@ app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (r
 // WEBHOOK WHATSAPP — Z-API (receber eventos)
 // ============================================
 app.post('/api/webhooks/whatsapp', express.json({ limit: '500kb' }), async (req, res) => {
-  // Verificar secret token se configurado
+  // Secret obrigatório — sem ele, qualquer um injetaria mensagens em qualquer loja
   const waSecret = process.env.ZAPI_WEBHOOK_SECRET;
-  if (waSecret) {
-    const provided = req.headers['x-webhook-secret'] || req.query.secret;
-    if (provided !== waSecret) return res.status(401).json({ error: 'Unauthorized' });
-  }
+  if (!waSecret) return res.status(503).json({ error: 'ZAPI_WEBHOOK_SECRET não configurado' });
+  const provided = req.headers['x-webhook-secret'] || req.query.secret;
+  if (provided !== waSecret) return res.status(401).json({ error: 'Unauthorized' });
 
   res.json({ received: true }); // responder rápido para Z-API não retentar
 
@@ -608,13 +633,6 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ============================================
-// MP: config pública
-// ============================================
-app.get('/api/stripe/config', (req, res) => {
-  res.json({ publishable_key: null, test_mode: !MP_ACCESS_TOKEN?.startsWith('APP_USR') });
-});
-
-// ============================================
 // PLANOS: LISTAR (público)
 // ============================================
 app.get('/api/plans', (req, res) => {
@@ -707,6 +725,7 @@ app.post('/api/plans/portal', auth, async (req, res) => {
 // AUTH: SESSÃO ATUAL
 // ============================================
 app.get('/api/auth/me', auth, (req, res) => {
+  // token incluído no body apenas para o frontend cross-origin (Vercel↔Railway) que não pode ler cookies
   res.json({ user: req.user, token: req.token });
 });
 
@@ -731,11 +750,10 @@ app.post('/api/auth/register-vendor', async (req, res) => {
     if (!/[^A-Za-z0-9]/.test(password))
       return res.status(400).json({ error: 'Senha deve conter ao menos um caractere especial (!@#$%...)' });
 
-    const { data: existing } = await supabase
-      .from('vendors')
-      .select('id')
-      .or(`email.eq.${email},cpf.eq.${cpf}`)
-      .maybeSingle();
+    // Duas queries separadas para evitar filter injection via .or() com string interpolada
+    const { data: byEmail } = await supabase.from('vendors').select('id').eq('email', email).maybeSingle();
+    const { data: byCpf }   = cpf ? await supabase.from('vendors').select('id').eq('cpf', cpf).maybeSingle() : { data: null };
+    const existing = byEmail || byCpf;
 
     if (existing) return res.status(400).json({ error: 'Email ou CPF já cadastrado' });
 
@@ -2076,6 +2094,45 @@ function normalizeOrder(o) {
     }
   };
 }
+
+// ============================================
+// LGPD: EXCLUSÃO DE DADOS DO CLIENTE FINAL
+// ============================================
+app.delete('/api/lgpd/customer-data', authLimiter, async (req, res) => {
+  // Endpoint público (clientes não têm login), mas protegido por rate limit e token simples
+  // O token é o phone/email normalizado — sem ele não há como saber o que apagar
+  const { phone, email } = req.body || {};
+  if (!phone && !email) return res.status(400).json({ error: 'Informe telefone ou email' });
+
+  // Normaliza para match exato (evita LIKE wildcards que vazam dados entre clientes)
+  const normalizedPhone = phone ? phone.replace(/\D/g, '') : null;
+  const normalizedEmail = email ? email.toLowerCase().trim() : null;
+
+  if (normalizedPhone && normalizedPhone.length < 8)
+    return res.status(400).json({ error: 'Telefone inválido' });
+
+  try {
+    let query = supabase.from('orders').select('id');
+    if (normalizedPhone) query = query.eq('customer_phone', normalizedPhone);
+    else                 query = query.eq('customer_email', normalizedEmail);
+
+    const { data: orders } = await query;
+    if (!orders?.length) return res.json({ message: 'Nenhum dado encontrado para anonimizar', removed: 0 });
+
+    const ids = orders.map(o => o.id);
+    await supabase.from('orders').update({
+      customer_name:    'REMOVIDO',
+      customer_phone:   null,
+      customer_email:   null,
+      customer_address: null,
+    }).in('id', ids);
+
+    res.json({ message: `Dados anonimizados em ${ids.length} pedido(s).`, removed: ids.length });
+  } catch (err) {
+    console.error('LGPD delete error:', err.message);
+    res.status(500).json({ error: 'Erro ao processar solicitação' });
+  }
+});
 
 // ============================================
 // START

@@ -273,7 +273,6 @@ export default function App() {
   const [vendorSettings, setVendorSettings] = useState({ deliveries_enabled: true });
   const [plans, setPlans]             = useState([]);
   const [planStatus, setPlanStatus]   = useState(null);
-  const [stripeTestMode, setStripeTestMode] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const BUSINESS_TYPES = {
     acai:         { label: 'Açaí',              emoji: '🫐', cats: [{ id:'base',       label:'Açaís',      emoji:'🫐', enabled:true },{ id:'bebidas', label:'Bebidas', emoji:'🥤', enabled:true },{ id:'adicionais', label:'Adicionais', emoji:'➕', enabled:true }] },
@@ -1122,6 +1121,7 @@ export default function App() {
         setLastOrder(data.order);
         setCart([]); setCustomerName(''); setCustomerPhone(''); setCustomerEmail('');
         setCustomerAddress(''); setCustomerComplement(''); setCheckoutDeliveryType('');
+        setLgpdConsent(false);
         setTrackingOrderId(data.order.id);
         setScreen('order-tracking');
       } catch (err) { showAlert(err.message || 'Erro ao criar pedido'); }
