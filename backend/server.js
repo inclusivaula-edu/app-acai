@@ -52,7 +52,7 @@ app.use(cors({
 
 app.use(cookieParser());
 app.use((req, res, next) => {
-  if (req.originalUrl === '/api/webhooks/stripe') return next();
+  if (req.originalUrl === '/api/webhooks/mercadopago') return next();
   if (/\/upload-image$/.test(req.originalUrl)) return next(); // binary body — handled by express.raw per-route
   if (/\/api\/vendors\/logo$/.test(req.originalUrl)) return next();
   express.json({ limit: '100kb' })(req, res, next);
@@ -168,20 +168,40 @@ const generateSlug = (name) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 
-// ── Stripe ────────────────────────────────────
-const stripe = process.env.STRIPE_SECRET_KEY
-  ? require('stripe')(process.env.STRIPE_SECRET_KEY)
-  : null;
+// ── Mercado Pago ───────────────────────────────
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || null;
 
-// Aviso em produção com chave de teste
-if (stripe && process.env.NODE_ENV === 'production' && process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_')) {
-  console.warn('⚠️  ATENÇÃO: Stripe em modo TEST em produção! Cobranças não são reais. Troque para sk_live_.');
+async function mpRequest(method, path, body = null) {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const req = https.request({
+      hostname: 'api.mercadopago.com',
+      path,
+      method,
+      headers: {
+        'Authorization': `Bearer ${MP_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': crypto.randomUUID(),
+        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+      },
+    }, res => {
+      let raw = '';
+      res.on('data', d => raw += d);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(raw) }); }
+        catch { resolve({ status: res.statusCode, data: raw }); }
+      });
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
 const PLANS = {
-  monthly:    { name: 'Mensal',    price: 290.00, months: 1,  priceId: process.env.STRIPE_PRICE_MONTHLY    },
-  semiannual: { name: 'Semestral', price: 250.00, months: 6,  priceId: process.env.STRIPE_PRICE_SEMIANNUAL },
-  annual:     { name: 'Anual',     price: 210.00, months: 12, priceId: process.env.STRIPE_PRICE_ANNUAL     },
+  monthly:    { name: 'Mensal',    price: 290.00, months: 1  },
+  semiannual: { name: 'Semestral', price: 1500.00, months: 6  },
+  annual:     { name: 'Anual',     price: 2520.00, months: 12 },
 };
 
 const TRIAL_DAYS = 14;
@@ -280,94 +300,40 @@ const planCheck = async (req, res, next) => {
 };
 
 // ============================================
-// WEBHOOK STRIPE (antes de qualquer middleware de body)
+// WEBHOOK MERCADO PAGO
 // ============================================
-app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: 'Stripe não configurado' });
-
-  const sig = req.headers['stripe-signature'];
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error('Webhook sig error:', err.message);
-    return res.status(400).json({ error: 'Webhook inválido' });
-  }
+app.post('/api/webhooks/mercadopago', express.json({ limit: '500kb' }), async (req, res) => {
+  res.json({ received: true }); // responder rápido
 
   try {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const { vendor_id, plan_id } = session.metadata || {};
-      if (vendor_id && PLANS[plan_id] && session.subscription) {
-        const sub = await stripe.subscriptions.retrieve(session.subscription);
-        const expiresAt = new Date(sub.current_period_end * 1000);
-        await supabase.from('vendors').update({
-          plan: plan_id,
-          plan_status: 'active',
-          plan_expires_at: expiresAt.toISOString(),
-          stripe_subscription_id: session.subscription,
-        }).eq('id', vendor_id);
-      }
+    const { type, data } = req.body;
+    if (type !== 'payment' || !data?.id) return;
+
+    const { status: httpStatus, data: payment } = await mpRequest('GET', `/v1/payments/${data.id}`);
+    if (httpStatus !== 200) return;
+
+    const { vendor_id, plan_id } = payment.metadata || {};
+    if (!vendor_id || !PLANS[plan_id]) return;
+
+    if (payment.status === 'approved') {
+      const months = PLANS[plan_id].months;
+      const expiresAt = new Date();
+      expiresAt.setMonth(expiresAt.getMonth() + months);
+      await supabase.from('vendors').update({
+        plan: plan_id,
+        plan_status: 'active',
+        plan_expires_at: expiresAt.toISOString(),
+        mp_payment_id: String(payment.id),
+      }).eq('id', vendor_id);
+      console.log(`✅ Plano ${plan_id} ativado para vendor ${vendor_id}`);
     }
 
-    if (event.type === 'invoice.paid') {
-      const invoice = event.data.object;
-      if (!invoice.subscription) { res.json({ received: true }); return; }
-      const sub = await stripe.subscriptions.retrieve(invoice.subscription);
-      const priceId = sub.items.data[0]?.price.id;
-      const plan_id = Object.keys(PLANS).find(k => PLANS[k].priceId === priceId);
-      if (!plan_id) { res.json({ received: true }); return; }
-      const expiresAt = new Date(sub.current_period_end * 1000);
-      const { data: vendor } = await supabase
-        .from('vendors').select('id').eq('stripe_subscription_id', invoice.subscription).maybeSingle();
-      if (vendor) {
-        await supabase.from('vendors').update({
-          plan: plan_id, plan_status: 'active', plan_expires_at: expiresAt.toISOString(),
-        }).eq('id', vendor.id);
-      }
-    }
-
-    if (event.type === 'customer.subscription.deleted') {
-      const sub = event.data.object;
-      const { data: vendor } = await supabase
-        .from('vendors').select('id').eq('stripe_subscription_id', sub.id).maybeSingle();
-      if (vendor) {
-        await supabase.from('vendors').update({ plan_status: 'canceled', stripe_subscription_id: null }).eq('id', vendor.id);
-      }
-    }
-
-    // Pagamento falhou — marca plano como inadimplente mas não cancela ainda
-    if (event.type === 'invoice.payment_failed') {
-      const invoice = event.data.object;
-      if (!invoice.subscription) { res.json({ received: true }); return; }
-      const { data: vendor } = await supabase
-        .from('vendors').select('id').eq('stripe_subscription_id', invoice.subscription).maybeSingle();
-      if (vendor) {
-        await supabase.from('vendors').update({ plan_status: 'past_due' }).eq('id', vendor.id);
-      }
-    }
-
-    // Assinatura pausada/alterada
-    if (event.type === 'customer.subscription.updated') {
-      const sub = event.data.object;
-      const { data: vendor } = await supabase
-        .from('vendors').select('id').eq('stripe_subscription_id', sub.id).maybeSingle();
-      if (vendor) {
-        const status = sub.status === 'active' ? 'active'
-          : sub.status === 'past_due' ? 'past_due'
-          : sub.status === 'canceled' ? 'canceled'
-          : sub.status === 'paused' ? 'paused'
-          : 'inactive';
-        const expiresAt = new Date(sub.current_period_end * 1000).toISOString();
-        await supabase.from('vendors').update({ plan_status: status, plan_expires_at: expiresAt }).eq('id', vendor.id);
-      }
+    if (payment.status === 'rejected' || payment.status === 'cancelled') {
+      await supabase.from('vendors').update({ plan_status: 'past_due' }).eq('id', vendor_id);
     }
   } catch (err) {
-    console.error('Webhook error:', err);
-    return res.status(500).json({ error: 'Erro ao processar webhook' });
+    console.error('MP webhook error:', err.message);
   }
-
-  res.json({ received: true });
 });
 
 // ============================================
@@ -594,13 +560,10 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ============================================
-// STRIPE: configuração pública (publishable key)
+// MP: config pública
 // ============================================
 app.get('/api/stripe/config', (req, res) => {
-  res.json({
-    publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || null,
-    test_mode: process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ?? true,
-  });
+  res.json({ publishable_key: null, test_mode: !MP_ACCESS_TOKEN?.startsWith('APP_USR') });
 });
 
 // ============================================
@@ -621,51 +584,45 @@ app.get('/api/plans', (req, res) => {
 // PLANOS: INICIAR CHECKOUT (vendor)
 // ============================================
 app.post('/api/plans/subscribe', auth, async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: 'Stripe não configurado' });
+  if (!MP_ACCESS_TOKEN) return res.status(503).json({ error: 'Mercado Pago não configurado' });
 
   const { plan_id } = req.body;
   const plan = PLANS[plan_id];
   if (!plan) return res.status(400).json({ error: 'Plano inválido' });
-  if (!plan.priceId) return res.status(500).json({ error: 'Price ID do plano não configurado' });
 
   try {
     const { data: vendor } = await supabase
-      .from('vendors').select('email, name, stripe_customer_id').eq('id', req.user.id).single();
+      .from('vendors').select('email, name').eq('id', req.user.id).single();
 
-    let customerId = vendor.stripe_customer_id;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: vendor.email, name: vendor.name, metadata: { vendor_id: req.user.id },
-      });
-      customerId = customer.id;
-      await supabase.from('vendors').update({ stripe_customer_id: customerId }).eq('id', req.user.id);
+    const preference = {
+      items: [{
+        title: `App Cardápio — Plano ${plan.name}`,
+        quantity: 1,
+        unit_price: plan.price,
+        currency_id: 'BRL',
+      }],
+      payer: { email: vendor.email, name: vendor.name },
+      back_urls: {
+        success: `${FRONTEND_URL}?plan_success=1`,
+        failure: `${FRONTEND_URL}?plan_canceled=1`,
+        pending: `${FRONTEND_URL}?plan_pending=1`,
+      },
+      auto_return: 'approved',
+      notification_url: `${process.env.BACKEND_URL || 'https://app-acai-production.up.railway.app'}/api/webhooks/mercadopago`,
+      metadata: { vendor_id: req.user.id, plan_id },
+      statement_descriptor: 'APP CARDAPIO',
+    };
+
+    const { status, data } = await mpRequest('POST', '/checkout/preferences', preference);
+    if (status !== 201) {
+      console.error('MP preference error:', data);
+      return res.status(500).json({ error: 'Erro ao criar preferência de pagamento' });
     }
 
-    const isLive = process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_');
-
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
-      mode: 'subscription',
-      // Em live no Brasil: aceitar cartão + boleto; em teste só cartão (boleto não disponível em test mode)
-      payment_method_types: isLive ? ['card', 'boleto'] : ['card'],
-      line_items: [{ price: plan.priceId, quantity: 1 }],
-      success_url: `${FRONTEND_URL}?plan_success=1`,
-      cancel_url:  `${FRONTEND_URL}?plan_canceled=1`,
-      locale: 'pt-BR',
-      currency: 'brl',
-      metadata: { vendor_id: req.user.id, plan_id },
-      subscription_data: {
-        metadata: { vendor_id: req.user.id, plan_id },
-      },
-      // Coletar endereço de cobrança (exigido para NF e compliance no Brasil)
-      billing_address_collection: 'required',
-      phone_number_collection: { enabled: true },
-    });
-
-    res.json({ url: session.url });
+    res.json({ url: data.init_point });
   } catch (err) {
-    console.error('Stripe checkout error:', err);
-    res.status(500).json({ error: 'Erro ao criar sessão de pagamento' });
+    console.error('MP subscribe error:', err);
+    res.status(500).json({ error: 'Erro ao iniciar pagamento' });
   }
 });
 
@@ -692,23 +649,10 @@ app.get('/api/plans/status', auth, async (req, res) => {
 });
 
 // ============================================
-// PLANOS: PORTAL DO CLIENTE (gerenciar assinatura)
+// PLANOS: CANCELAR ASSINATURA (contato via suporte)
 // ============================================
 app.post('/api/plans/portal', auth, async (req, res) => {
-  if (!stripe) return res.status(503).json({ error: 'Stripe não configurado' });
-  try {
-    const { data: vendor } = await supabase
-      .from('vendors').select('stripe_customer_id').eq('id', req.user.id).single();
-    if (!vendor?.stripe_customer_id)
-      return res.status(400).json({ error: 'Sem assinatura ativa' });
-    const session = await stripe.billingPortal.sessions.create({
-      customer: vendor.stripe_customer_id,
-      return_url: FRONTEND_URL,
-    });
-    res.json({ url: session.url });
-  } catch {
-    res.status(500).json({ error: 'Erro ao abrir portal' });
-  }
+  res.json({ url: null, message: 'Para cancelar ou alterar seu plano, entre em contato com o suporte.' });
 });
 
 // ============================================

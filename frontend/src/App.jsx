@@ -563,11 +563,8 @@ export default function App() {
     } catch (err) { showAlert(err.message || 'Erro ao iniciar assinatura'); setLoading(false); }
   };
 
-  const openPortal = async () => {
-    try {
-      const data = await apiFetch('/plans/portal', { method: 'POST' });
-      window.location.href = data.url;
-    } catch (err) { showAlert(err.message || 'Erro ao abrir portal'); }
+  const openPortal = () => {
+    showAlert('Para cancelar ou alterar seu plano, entre em contato com o suporte.', 'success');
   };
 
   const fetchCommissions = async () => {
@@ -1484,10 +1481,6 @@ export default function App() {
             <p style={{ color: 'rgba(255,255,255,0.85)', marginTop: '8px', fontSize: '16px' }}>Gerencie seu negócio com facilidade</p>
           </div>
 
-          {stripeTestMode && (
-            <div style={{ background: '#fff8e1', border: '1px solid #ffe082', color: '#f57f17', padding: '10px 16px', borderRadius: '8px', marginBottom: '16px', textAlign: 'center', fontSize: '13px', fontWeight: '500' }}>
-              ⚠️ Modo de teste ativo — cobranças não são reais. Use o cartão <strong>4242 4242 4242 4242</strong>.
-            </div>
           )}
           {canceled && (
             <div style={{ background: '#ffebee', color: '#c62828', padding: '12px 16px', borderRadius: '8px', marginBottom: '24px', textAlign: 'center', fontWeight: '500' }}>
