@@ -365,25 +365,33 @@ export default function App() {
       .catch(() => showAlert('Loja não encontrada'));
   };
 
+  // Acordar o backend imediatamente ao abrir o app (evita cold start percebido)
+  useEffect(() => {
+    fetch(`${API_URL}/health`).catch(() => {});
+  }, []);
+
   // Carregar info da loja, produtos e restaurar sessão
   useEffect(() => {
-    if (vendorSlug) {
-      apiFetch(`/store/${vendorSlug}`)
-        .then(info => { setStoreInfo(info); fetchProducts(); saveStoreToHistory(info, vendorSlug); })
-        .catch(() => setStoreInfo(false));
-    }
-    apiFetch('/plans').then(setPlans).catch(() => {});
-    apiFetch('/stripe/config').then(d => setStripeTestMode(d.test_mode)).catch(() => {});
-    apiFetch('/auth/me')
+    const storePromise = vendorSlug
+      ? apiFetch(`/store/${vendorSlug}`)
+          .then(info => { setStoreInfo(info); fetchProducts(); saveStoreToHistory(info, vendorSlug); })
+          .catch(() => setStoreInfo(false))
+      : Promise.resolve();
+
+    const sessionPromise = apiFetch('/auth/me')
       .then(data => {
         if (data.token) authToken = data.token;
         setUser(data.user);
         if (!vendorSlug && data.user?.role === 'vendor') setScreen('admin');
-        // Sem loja e não é vendor → tela de lojas salvas
         if (!vendorSlug && !data.user) setScreen('my-stores');
       })
-      .catch(() => { if (!vendorSlug) setScreen('my-stores'); })
+      .catch(() => { if (!vendorSlug) setScreen('my-stores'); });
+
+    // Paralelo: sessão + loja + planos ao mesmo tempo
+    Promise.all([sessionPromise, storePromise])
       .finally(() => setSessionLoaded(true));
+
+    apiFetch('/plans').then(setPlans).catch(() => {});
 
     // Tratar retorno do Stripe Checkout
     const params = new URLSearchParams(window.location.search);

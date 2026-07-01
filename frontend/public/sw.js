@@ -1,4 +1,4 @@
-const CACHE = 'acai-v1';
+const CACHE = 'acai-v2';
 const STATIC = [
   '/',
   '/static/js/main.chunk.js',
