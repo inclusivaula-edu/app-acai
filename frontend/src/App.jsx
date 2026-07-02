@@ -2305,6 +2305,35 @@ export default function App() {
             <div style={{ fontSize: '12px', color: '#999', marginTop: '8px' }}>Use apenas letras minúsculas, números e hífens. Ex: açaí-da-maria</div>
           </div>
 
+          {/* QR Code do cardápio */}
+          {vendorSettings?.slug && (() => {
+            const qrLink = `${window.location.origin}${window.location.pathname}?loja=${vendorSettings.slug}`;
+            const qrSrc  = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=4&data=${encodeURIComponent(qrLink)}`;
+            return (
+              <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '12px' }}>📲 QR Code do seu cardápio</div>
+                <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <img src={qrSrc} alt="QR Code" style={{ width: 100, height: 100, borderRadius: '8px', border: '2px solid #667eea', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <p style={{ margin: '0 0 12px', color: '#666', fontSize: '13px', lineHeight: '1.5' }}>
+                      Imprima e cole no balcão, embalagens ou cartões de visita.
+                    </p>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => setScreen('qrcode')}
+                        style={{ background: '#667eea', color: '#fff', border: 'none', borderRadius: '7px', padding: '8px 14px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+                      >🔍 Ver / Baixar</button>
+                      <button
+                        onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`🫐 Acesse nosso cardápio: ${qrLink}`)}`, '_blank')}
+                        style={{ background: '#25D366', color: '#fff', border: 'none', borderRadius: '7px', padding: '8px 14px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+                      >💚 WhatsApp</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Configuração de entregas */}
           <div style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', marginBottom: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
