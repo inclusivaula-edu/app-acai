@@ -985,7 +985,8 @@ export default function App() {
 
           {(() => {
             const activeCat = selectedCategory ?? getCategories(storeInfo?.categories).filter(c => c.enabled !== false)[0]?.id;
-            const visibleProducts = products.filter(p => p.category === activeCat && p.available !== false);
+            const visibleProducts = products.filter(p => p.category === activeCat && p.available !== false)
+              .map(p => ({ ...p, outOfStock: p.stock !== null && p.stock !== undefined && p.stock === 0 }));
             return visibleProducts.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>
                 <div style={{ fontSize: '40px', marginBottom: '12px' }}>🫐</div>
@@ -1005,7 +1006,10 @@ export default function App() {
                     <p style={{ margin: '0 0 12px 0', color: '#999', fontSize: '13px', lineHeight: '1.4' }}>{product.description || product.desc}</p>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#667eea' }}>R$ {product.price.toFixed(2)}</span>
-                      <Btn onClick={() => addToCart(product)} style={{ padding: '8px 16px', fontSize: '14px' }}>+ Adicionar</Btn>
+                      {product.outOfStock
+                        ? <span style={{ background: '#ffebee', color: '#c62828', padding: '8px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold' }}>Indisponível</span>
+                        : <Btn onClick={() => addToCart(product)} style={{ padding: '8px 16px', fontSize: '14px' }}>+ Adicionar</Btn>
+                      }
                     </div>
                   </div>
                 </div>
@@ -2010,8 +2014,8 @@ export default function App() {
     if (!user) { setScreen('login'); return null; }
 
     const scrollToForm = () => setTimeout(() => document.getElementById('product-form-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-    const openNew = () => { const firstCat = getCategories(vendorSettings?.categories)[0]?.id || 'base'; setProductForm({ name: '', description: '', price: '', category: firstCat, emoji: '🫐', calories: '', ingredients: '', allergens: '' }); setEditingProduct(null); setShowProductForm(true); scrollToForm(); };
-    const openEdit = (p) => { setProductForm({ name: p.name, description: p.description || '', price: p.price, category: p.category, emoji: p.icon || p.emoji || '🫐', calories: p.calories || '', ingredients: p.ingredients || '', allergens: p.allergens || '' }); setEditingProduct({ ...p }); setShowProductForm(true); scrollToForm(); };
+    const openNew = () => { const firstCat = getCategories(vendorSettings?.categories)[0]?.id || 'base'; setProductForm({ name: '', description: '', price: '', category: firstCat, emoji: '🫐', calories: '', ingredients: '', allergens: '', stock: '' }); setEditingProduct(null); setShowProductForm(true); scrollToForm(); };
+    const openEdit = (p) => { setProductForm({ name: p.name, description: p.description || '', price: p.price, category: p.category, emoji: p.icon || p.emoji || '🫐', calories: p.calories || '', ingredients: p.ingredients || '', allergens: p.allergens || '', stock: p.stock ?? '' }); setEditingProduct({ ...p }); setShowProductForm(true); scrollToForm(); };
 
     const uploadImage = async (productId, file) => {
       if (file.size > 5 * 1024 * 1024) throw new Error('Imagem muito grande (máx. 5MB)');
@@ -2084,7 +2088,8 @@ export default function App() {
                   <Input label="Emoji" value={productForm.emoji} onChange={e => setProductForm(f => ({...f, emoji: e.target.value}))} placeholder="🫐" />
                 </div>
                 <Input label="Descrição" value={productForm.description} onChange={e => setProductForm(f => ({...f, description: e.target.value}))} placeholder="Açaí 500ml com granola e mel" />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
+                  <Input label="Estoque (vazio = ilimitado)" type="number" min="0" value={productForm.stock} onChange={e => setProductForm(f => ({...f, stock: e.target.value}))} placeholder="ex: 20" />
                   <Input label="Calorias" value={productForm.calories} onChange={e => setProductForm(f => ({...f, calories: e.target.value}))} placeholder="450 kcal" />
                   <Input label="Ingredientes" value={productForm.ingredients} onChange={e => setProductForm(f => ({...f, ingredients: e.target.value}))} placeholder="Açaí, granola, mel" />
                   <Input label="Alérgenos" value={productForm.allergens} onChange={e => setProductForm(f => ({...f, allergens: e.target.value}))} placeholder="Glúten, mel" />
@@ -2136,6 +2141,14 @@ export default function App() {
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 'bold', color: '#667eea', fontSize: '16px' }}>R$ {Number(p.price).toFixed(2)}</span>
+                        {p.stock === null || p.stock === undefined
+                          ? <span style={{ background: '#e8f0ff', color: '#3f51b5', border: 'none', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>∞ Ilimitado</span>
+                          : p.stock === 0
+                            ? <span style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>0 Sem estoque</span>
+                            : p.stock <= 5
+                              ? <span style={{ background: '#fff3e0', color: '#e65100', border: 'none', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>{p.stock} Crítico</span>
+                              : <span style={{ background: '#e8f5e9', color: '#2e7d32', border: 'none', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>{p.stock} em estoque</span>
+                        }
                         <button onClick={() => toggleAvailable(p)} style={{ background: p.available !== false ? '#e8f5e9' : '#ffebee', color: p.available !== false ? '#2e7d32' : '#c62828', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
                           {p.available !== false ? '✓ Ativo' : '✗ Pausado'}
                         </button>
@@ -3194,6 +3207,170 @@ export default function App() {
               </>
             )}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── SUPER-ADMIN ─────────────────────────────────────────────────────────────
+  if (screen === 'super-admin') {
+    const [saKey, setSaKey] = React.useState('');
+    const [saAuthed, setSaAuthed] = React.useState(false);
+    const [saStats, setSaStats] = React.useState(null);
+    const [saVendors, setSaVendors] = React.useState([]);
+    const [saLoading, setSaLoading] = React.useState(false);
+    const [saAlert, setSaAlert] = React.useState({ msg: '', type: 'error' });
+
+    const saFetch = async (path, opts = {}) => {
+      const res = await fetch(`${API_URL}${path}`, {
+        ...opts,
+        headers: { 'Content-Type': 'application/json', 'x-super-admin-key': saKey, ...(opts.headers || {}) },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Erro');
+      return data;
+    };
+
+    const loadSaData = async () => {
+      setSaLoading(true);
+      try {
+        const [stats, vendors] = await Promise.all([
+          saFetch('/super-admin/stats'),
+          saFetch('/super-admin/vendors'),
+        ]);
+        setSaStats(stats);
+        setSaVendors(vendors);
+        setSaAuthed(true);
+      } catch (err) {
+        setSaAlert({ msg: err.message === 'Não autorizado' ? 'Chave inválida' : err.message, type: 'error' });
+      } finally {
+        setSaLoading(false);
+      }
+    };
+
+    const extendVendor = async (id, days) => {
+      try {
+        const v = saVendors.find(x => x.id === id);
+        const base = new Date(Math.max(Date.now(), new Date(v.subscription_ends_at || Date.now())));
+        base.setDate(base.getDate() + days);
+        await saFetch(`/super-admin/vendors/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ subscription_ends_at: base.toISOString(), plan: 'mensal', status: 'active' }),
+        });
+        setSaAlert({ msg: `Plano estendido ${days} dias`, type: 'success' });
+        loadSaData();
+      } catch (err) { setSaAlert({ msg: err.message, type: 'error' }); }
+    };
+
+    const cancelVendor = async (id) => {
+      if (!window.confirm('Cancelar plano deste vendor?')) return;
+      try {
+        await saFetch(`/super-admin/vendors/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) });
+        setSaAlert({ msg: 'Plano cancelado', type: 'success' });
+        loadSaData();
+      } catch (err) { setSaAlert({ msg: err.message, type: 'error' }); }
+    };
+
+    const fmtDate = (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+    const planColor = (v) => {
+      if (v.plan === 'trial') return { bg: '#fff8e1', color: '#f57f17' };
+      if (v.status !== 'active') return { bg: '#ffebee', color: '#c62828' };
+      return { bg: '#e8f5e9', color: '#2e7d32' };
+    };
+
+    return (
+      <div style={{ background: '#0d0d1a', minHeight: '100vh', color: '#eee', padding: '24px 20px' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '32px' }}>
+            <span style={{ fontSize: '36px' }}>🛡️</span>
+            <div>
+              <h1 style={{ margin: 0, fontSize: '24px', color: '#fff' }}>Super-Admin</h1>
+              <p style={{ margin: 0, color: '#888', fontSize: '13px' }}>Painel exclusivo do dono do app</p>
+            </div>
+            <button onClick={() => setScreen('login')} style={{ marginLeft: 'auto', background: '#333', color: '#aaa', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>← Sair</button>
+          </div>
+
+          {saAlert.msg && (
+            <div style={{ background: saAlert.type === 'success' ? '#1a3a1a' : '#3a1a1a', border: `1px solid ${saAlert.type === 'success' ? '#2e7d32' : '#c62828'}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '20px', color: saAlert.type === 'success' ? '#81c784' : '#ef9a9a', fontSize: '14px', display: 'flex', justifyContent: 'space-between' }}>
+              {saAlert.msg}
+              <button onClick={() => setSaAlert({ msg: '' })} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '16px' }}>×</button>
+            </div>
+          )}
+
+          {!saAuthed ? (
+            <div style={{ maxWidth: '360px', margin: '80px auto', background: '#1a1a2e', borderRadius: '16px', padding: '32px' }}>
+              <h2 style={{ margin: '0 0 20px', textAlign: 'center' }}>Autenticação</h2>
+              <input
+                type="password" value={saKey} onChange={e => setSaKey(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && loadSaData()}
+                placeholder="SUPER_ADMIN_KEY"
+                style={{ width: '100%', padding: '12px', background: '#0d0d1a', border: '1px solid #444', borderRadius: '8px', color: '#eee', fontSize: '15px', boxSizing: 'border-box', marginBottom: '12px' }}
+              />
+              <button onClick={loadSaData} disabled={saLoading || !saKey} style={{ width: '100%', padding: '12px', background: '#667eea', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px', opacity: saLoading || !saKey ? 0.6 : 1 }}>
+                {saLoading ? 'Verificando...' : 'Entrar'}
+              </button>
+            </div>
+          ) : (
+            <>
+              {saStats && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+                  {[
+                    { label: 'Total Vendors', value: saStats.total, icon: '🏪', color: '#667eea' },
+                    { label: 'Em Trial', value: saStats.trial, icon: '⏳', color: '#f57f17' },
+                    { label: 'Ativos (pago)', value: saStats.active, icon: '✅', color: '#2e7d32' },
+                    { label: 'Expirados', value: saStats.expired, icon: '❌', color: '#c62828' },
+                    { label: 'MRR', value: `R$ ${(saStats.mrr || 0).toFixed(2)}`, icon: '💰', color: '#00897b' },
+                  ].map(card => (
+                    <div key={card.label} style={{ background: '#1a1a2e', borderRadius: '12px', padding: '20px', borderLeft: `4px solid ${card.color}` }}>
+                      <div style={{ fontSize: '24px', marginBottom: '6px' }}>{card.icon}</div>
+                      <div style={{ fontSize: '28px', fontWeight: 'bold', color: card.color }}>{card.value}</div>
+                      <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>{card.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ background: '#1a1a2e', borderRadius: '12px', padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h2 style={{ margin: 0, fontSize: '18px' }}>Vendors ({saVendors.length})</h2>
+                  <button onClick={loadSaData} disabled={saLoading} style={{ background: '#333', color: '#aaa', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>🔄 Atualizar</button>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #333' }}>
+                        {['Nome', 'Email', 'Plano', 'Status', 'Expira', 'Criado', 'Ações'].map(h => (
+                          <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: '#888', fontWeight: '600', whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {saVendors.map(v => {
+                        const pc = planColor(v);
+                        return (
+                          <tr key={v.id} style={{ borderBottom: '1px solid #1e1e30' }}>
+                            <td style={{ padding: '10px 12px', color: '#ddd' }}>{v.name}</td>
+                            <td style={{ padding: '10px 12px', color: '#aaa' }}>{v.email}</td>
+                            <td style={{ padding: '10px 12px' }}><span style={{ background: pc.bg, color: pc.color, padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>{v.plan}</span></td>
+                            <td style={{ padding: '10px 12px', color: v.status === 'active' ? '#81c784' : '#ef9a9a', fontSize: '12px' }}>{v.status}</td>
+                            <td style={{ padding: '10px 12px', color: '#aaa', whiteSpace: 'nowrap' }}>{fmtDate(v.plan === 'trial' ? v.trial_ends_at : v.subscription_ends_at)}</td>
+                            <td style={{ padding: '10px 12px', color: '#777', whiteSpace: 'nowrap' }}>{fmtDate(v.created_at)}</td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                <button onClick={() => extendVendor(v.id, 30)} style={{ background: '#1a3a4a', color: '#4fc3f7', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>+30d</button>
+                                <button onClick={() => extendVendor(v.id, 365)} style={{ background: '#1a3a2a', color: '#81c784', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>+1 ano</button>
+                                <button onClick={() => cancelVendor(v.id)} style={{ background: '#3a1a1a', color: '#ef9a9a', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>Cancelar</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );

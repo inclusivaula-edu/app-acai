@@ -1171,7 +1171,7 @@ app.post('/api/products', [auth, planCheck], async (req, res) => {
   try {
     if (req.user.role !== 'vendor') return res.status(403).json({ error: 'Apenas vendors' });
 
-    const { name, description, price, category, emoji, calories, ingredients, allergens } = req.body;
+    const { name, description, price, category, emoji, calories, ingredients, allergens, stock } = req.body;
     if (!name || price == null || !category) return res.status(400).json({ error: 'Nome, preço e categoria são obrigatórios' });
 
     if (req.vendor.plan === 'trial') {
@@ -1190,6 +1190,10 @@ app.post('/api/products', [auth, planCheck], async (req, res) => {
 
     const nullify = v => (v === '' || v === undefined) ? null : v;
 
+    const parsedStock = stock === '' || stock == null ? null : parseInt(stock);
+    if (parsedStock !== null && (isNaN(parsedStock) || parsedStock < 0))
+      return res.status(400).json({ error: 'Estoque inválido' });
+
     const insertData = {
       vendor_id:    req.user.id,
       name,
@@ -1199,6 +1203,7 @@ app.post('/api/products', [auth, planCheck], async (req, res) => {
       calories:     nullify(calories),
       ingredients:  nullify(ingredients),
       allergens:    nullify(allergens),
+      stock:        parsedStock,
     };
     // tenta inserir com 'emoji'; se a coluna não existir, tenta 'icon'
     let { data, error } = await supabase.from('products').insert({ ...insertData, emoji: nullify(emoji) || '🫐' }).select().single();
@@ -1222,7 +1227,7 @@ app.post('/api/products', [auth, planCheck], async (req, res) => {
 // ============================================
 app.put('/api/products/:id', [auth, planCheck], async (req, res) => {
   try {
-    const allowed = ['name','description','price','category','emoji','icon','available','calories','ingredients','allergens'];
+    const allowed = ['name','description','price','category','emoji','icon','available','calories','ingredients','allergens','stock'];
     const updates = Object.fromEntries(
       Object.entries(req.body)
         .filter(([k]) => allowed.includes(k))
@@ -1315,7 +1320,7 @@ app.post('/api/orders', async (req, res) => {
 
     const { data: dbProducts, error: pErr } = await supabase
       .from('products')
-      .select('id, name, price, emoji, available')
+      .select('id, name, price, emoji, available, stock')
       .in('id', productIds)
       .eq('vendor_id', vendor.id)
       .eq('available', true);
@@ -1327,11 +1332,16 @@ app.post('/api/orders', async (req, res) => {
     for (const item of items) {
       const product = productMap[item.product_id];
       if (!product) return res.status(400).json({ error: `Produto ${item.product_id} não encontrado ou indisponível` });
+      if (product.stock !== null && product.stock <= 0)
+        return res.status(400).json({ error: `Produto "${product.name}" está indisponível no momento` });
+      const qty = Math.max(1, parseInt(item.quantity) || 1);
+      if (product.stock !== null && qty > product.stock)
+        return res.status(400).json({ error: `Estoque insuficiente para "${product.name}" (disponível: ${product.stock})` });
       validatedItems.push({
         product_id: item.product_id,
         name:       product.name,
         price:      product.price,
-        quantity:   Math.max(1, parseInt(item.quantity) || 1),
+        quantity:   qty,
         emoji:      product.emoji,
       });
     }
@@ -1372,6 +1382,17 @@ app.post('/api/orders', async (req, res) => {
       .single();
 
     if (error) return sbErr(error, res);
+
+    // Decrementar estoque dos produtos com controle de estoque finito
+    for (const item of validatedItems) {
+      const prod = productMap[item.product_id];
+      if (prod.stock !== null) {
+        await supabase.from('products')
+          .update({ stock: Math.max(0, prod.stock - item.quantity) })
+          .eq('id', item.product_id)
+          .eq('vendor_id', vendor.id);
+      }
+    }
 
     // Notificação WhatsApp automática ao cliente (usando credenciais do vendor)
     if (customer.phone) {
@@ -2172,6 +2193,59 @@ app.delete('/api/lgpd/customer-data', authLimiter, async (req, res) => {
     console.error('LGPD delete error:', err.message);
     res.status(500).json({ error: 'Erro ao processar solicitação' });
   }
+});
+
+// ============================================
+// SUPER-ADMIN (dono do app)
+// ============================================
+const superAdminAuth = (req, res, next) => {
+  const key = req.headers['x-super-admin-key'];
+  if (!process.env.SUPER_ADMIN_KEY || key !== process.env.SUPER_ADMIN_KEY)
+    return res.status(401).json({ error: 'Não autorizado' });
+  next();
+};
+
+app.get('/api/super-admin/stats', superAdminAuth, async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const { data: vendors } = await supabase.from('vendors').select('id, plan, status, trial_ends_at, subscription_ends_at');
+    const total   = vendors?.length || 0;
+    const trial   = vendors?.filter(v => v.plan === 'trial').length || 0;
+    const active  = vendors?.filter(v => v.plan !== 'trial' && v.status === 'active').length || 0;
+    const expired = vendors?.filter(v => {
+      if (v.plan === 'trial') return v.trial_ends_at && v.trial_ends_at < now;
+      return v.subscription_ends_at && v.subscription_ends_at < now;
+    }).length || 0;
+
+    const { data: subs } = await supabase.from('subscriptions')
+      .select('amount').eq('status', 'active');
+    const mrr = subs?.reduce((s, r) => s + (Number(r.amount) || 0), 0) || 0;
+
+    res.json({ total, trial, active, expired, mrr });
+  } catch { res.status(500).json({ error: 'Erro interno' }); }
+});
+
+app.get('/api/super-admin/vendors', superAdminAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('vendors')
+      .select('id, name, email, phone, plan, status, trial_ends_at, subscription_ends_at, created_at')
+      .order('created_at', { ascending: false });
+    if (error) return sbErr(error, res);
+    res.json(data);
+  } catch { res.status(500).json({ error: 'Erro interno' }); }
+});
+
+app.patch('/api/super-admin/vendors/:id', superAdminAuth, async (req, res) => {
+  try {
+    const allowed = ['plan', 'status', 'subscription_ends_at', 'trial_ends_at'];
+    const updates = Object.fromEntries(
+      Object.entries(req.body).filter(([k]) => allowed.includes(k))
+    );
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nenhum campo válido' });
+    const { data, error } = await supabase.from('vendors').update(updates).eq('id', req.params.id).select().single();
+    if (error) return sbErr(error, res);
+    res.json({ message: 'Vendor atualizado', vendor: data });
+  } catch { res.status(500).json({ error: 'Erro interno' }); }
 });
 
 // ============================================
