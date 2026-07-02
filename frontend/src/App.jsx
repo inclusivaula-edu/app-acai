@@ -2642,6 +2642,33 @@ export default function App() {
             ))}
           </div>
 
+          {/* QR Code do cardápio */}
+          {cardapioUrl && (
+            <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', marginBottom: '14px', display: 'flex', gap: '24px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=6&data=${encodeURIComponent(cardapioUrl)}`}
+                alt="QR Code do cardápio"
+                style={{ width: 140, height: 140, borderRadius: '8px', border: '1px solid #eee', flexShrink: 0 }}
+              />
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <h3 style={{ margin: '0 0 6px', color: '#333' }}>📲 QR Code do seu cardápio</h3>
+                <p style={{ margin: '0 0 14px', color: '#666', fontSize: '14px', lineHeight: '1.5' }}>
+                  Imprima e cole no balcão, mesas ou embalagens. O cliente aponta a câmera e já cai direto no seu cardápio.
+                </p>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setScreen('qrcode')}
+                    style={{ background: '#667eea', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+                  >🔍 Ver em tamanho maior</button>
+                  <button
+                    onClick={() => { navigator.clipboard?.writeText(cardapioUrl); showAlert('Link copiado!', 'success'); }}
+                    style={{ background: '#f0f0f0', color: '#555', border: 'none', borderRadius: '8px', padding: '9px 18px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+                  >📋 Copiar link</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Dicas rápidas */}
           <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
             <h3 style={{ margin: '0 0 16px', color: '#333' }}>💡 Dicas rápidas</h3>
@@ -2662,6 +2689,84 @@ export default function App() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── QR CODE DO CARDÁPIO ─────────────────────────────────────────────────────
+  if (screen === 'qrcode') {
+    if (!sessionLoaded) return null;
+    if (!user) { setScreen('login'); return null; }
+    const slug = vendorSettings?.slug;
+    const qrUrl = slug ? `${window.location.origin}${window.location.pathname}?loja=${slug}` : null;
+    const qrImgUrl = qrUrl
+      ? `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=16&data=${encodeURIComponent(qrUrl)}`
+      : null;
+
+    const handleDownload = async () => {
+      if (!qrImgUrl) return;
+      try {
+        const resp = await fetch(qrImgUrl);
+        const blob = await resp.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `qrcode-${slug}.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch { showAlert('Erro ao baixar QR Code'); }
+    };
+
+    return (
+      <div style={{ background: '#f5f5f5', minHeight: '100vh' }}>
+        <AdminHeader active="tutorial-admin" {...adminHeaderProps} />
+        <div style={{ maxWidth: '560px', margin: '0 auto', padding: '28px 20px' }}>
+          <Alert msg={alert.msg} type={alert.type} />
+          <button onClick={() => setScreen('tutorial-admin')} style={{ background: 'none', border: 'none', color: '#667eea', cursor: 'pointer', marginBottom: '20px', fontWeight: 'bold', fontSize: '15px' }}>← Voltar</button>
+
+          <div style={{ background: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 4px 16px rgba(0,0,0,0.08)', textAlign: 'center' }}>
+            <h2 style={{ margin: '0 0 6px', color: '#333' }}>📲 QR Code do seu cardápio</h2>
+            <p style={{ color: '#888', fontSize: '14px', marginBottom: '24px' }}>
+              Aponte a câmera do celular para testar
+            </p>
+
+            {qrImgUrl ? (
+              <>
+                <div style={{ display: 'inline-block', background: '#fff', border: '3px solid #667eea', borderRadius: '16px', padding: '12px', marginBottom: '24px' }}>
+                  <img src={qrImgUrl} alt="QR Code" style={{ width: 280, height: 280, display: 'block' }} />
+                </div>
+
+                <div style={{ background: '#f8f9ff', borderRadius: '10px', padding: '12px 16px', marginBottom: '24px', wordBreak: 'break-all', fontSize: '13px', color: '#667eea', fontFamily: 'monospace' }}>
+                  {qrUrl}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <button
+                    onClick={handleDownload}
+                    style={{ background: '#667eea', color: '#fff', border: 'none', borderRadius: '10px', padding: '14px', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer' }}
+                  >⬇️ Baixar QR Code (PNG)</button>
+                  <button
+                    onClick={() => { navigator.clipboard?.writeText(qrUrl); showAlert('Link copiado!', 'success'); }}
+                    style={{ background: '#f0f0f0', color: '#555', border: 'none', borderRadius: '10px', padding: '12px', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}
+                  >📋 Copiar link do cardápio</button>
+                  <button
+                    onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(`🫐 Acesse nosso cardápio e faça seu pedido: ${qrUrl}`)}`, '_blank')}
+                    style={{ background: '#25D366', color: '#fff', border: 'none', borderRadius: '10px', padding: '12px', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}
+                  >💚 Compartilhar no WhatsApp</button>
+                </div>
+
+                <p style={{ marginTop: '20px', fontSize: '12px', color: '#bbb', lineHeight: '1.6' }}>
+                  💡 Dica: imprima o QR Code e cole no balcão, nas embalagens ou em cartões de visita.
+                </p>
+              </>
+            ) : (
+              <div style={{ padding: '40px', color: '#999' }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔗</div>
+                <p>Configure o link da sua loja em <strong>Configuração</strong> para gerar o QR Code.</p>
+                <button onClick={() => setScreen('deliverers-admin')} style={{ marginTop: '12px', background: '#667eea', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>Ir para Configuração</button>
+              </div>
+            )}
           </div>
         </div>
       </div>
